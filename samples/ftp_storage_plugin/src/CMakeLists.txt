@@ -9,6 +9,7 @@ set(ftplibpp_source_files
 )
 
 find_package(AWSSDK REQUIRED COMPONENTS s3)
+find_package(jsoncpp REQUIRED)
 
 file(GLOB_RECURSE source_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*)
 add_library(ftp_storage_plugin SHARED ${source_files} ${ftplibpp_source_files})
@@ -29,8 +30,8 @@ target_compile_definitions(ftp_storage_plugin
 
 target_include_directories(ftp_storage_plugin PRIVATE
     ../../../src #< SDK headers.
+    /usr/include/jsoncpp #< Json headers.
     ${ftplibpp_dir}
-    
 )
 
 target_compile_definitions(ftp_storage_plugin PRIVATE
@@ -55,4 +56,4 @@ set_target_properties(ftp_storage_plugin PROPERTIES
     CXX_EXTENSIONS NO
 )
 
-target_link_libraries(ftp_storage_plugin PRIVATE ${AWSSDK_LINK_LIBRARIES})
+target_link_libraries(ftp_storage_plugin PRIVATE ${AWSSDK_LINK_LIBRARIES} jsoncpp)
