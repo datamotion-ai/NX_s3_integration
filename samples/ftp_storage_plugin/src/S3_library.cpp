@@ -856,6 +856,7 @@ namespace nx_spl
         
         if(m_bucketSizeNeedUpdate)
         {
+            INFOLOG("Updating Free size");
             try
             {
                 totalSize = aux::remoteFolderSize(m_bucket + "/",m_bucket,m_impl);

@@ -3,16 +3,11 @@
 cmake_minimum_required(VERSION 3.3.2)
 project(ftp_storage_plugin)
 
-set(ftplibpp_dir ${CMAKE_CURRENT_SOURCE_DIR}/../ftplibpp)
-set(ftplibpp_source_files
-    ${ftplibpp_dir}/ftplibpp/ftplib.cpp
-)
-
 find_package(AWSSDK REQUIRED COMPONENTS s3)
 find_package(jsoncpp REQUIRED)
 
 file(GLOB_RECURSE source_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*)
-add_library(ftp_storage_plugin SHARED ${source_files} ${ftplibpp_source_files})
+add_library(ftp_storage_plugin SHARED ${source_files} )
 
 if(WIN32)
     set(API_IMPORT_MACRO "__declspec(dllimport)")
@@ -31,7 +26,6 @@ target_compile_definitions(ftp_storage_plugin
 target_include_directories(ftp_storage_plugin PRIVATE
     ../../../src #< SDK headers.
     /usr/include/jsoncpp #< Json headers.
-    ${ftplibpp_dir}
 )
 
 target_compile_definitions(ftp_storage_plugin PRIVATE
