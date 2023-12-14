@@ -25,6 +25,8 @@
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/ListObjectsV2Request.h>
 
+#include <curl/curl.h>
+
 #include "storage/third_party_storage.h"
 
 namespace fs = std::filesystem;
@@ -398,6 +400,7 @@ namespace nx_spl
         ~S3StorageFactory();
     private:
         Aws::SDKOptions options;
+        std::string m_crlresponse;
     }; // class S3StorageFactory
 
 }

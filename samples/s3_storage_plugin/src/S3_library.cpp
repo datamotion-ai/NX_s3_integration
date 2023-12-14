@@ -63,7 +63,7 @@ namespace nx_spl
                     host
                 } ps = scheme;
 
-                const int schemeSize = 6; // "S3://" size
+                const int schemeSize = 5; // "S3://" size
                 int start = 0, cur = 0;
                 char c;
                 Url u;
@@ -76,7 +76,7 @@ namespace nx_spl
                     switch (ps)
                     {
                     case scheme:
-                        if (s.substr(0, schemeSize) != "ftp://")
+                        if (s.substr(0, schemeSize) != "s3://")
                             throw std::logic_error("Url parse failed. Wrong scheme.");
                         start = schemeSize;
                         cur = schemeSize;
@@ -344,6 +344,32 @@ namespace nx_spl
         #endif
         }
 
+        uint64_t getRemoteFileSize(const std::string& uri,const std::string& bucket,const implPtrType& impl)
+        {
+            DEBUGLOG(uri,bucket);
+            uint64_t size = 0;
+            if(impl.get() != nullptr)
+            {
+                Aws::S3::Model::HeadObjectRequest request;
+                request.SetBucket(bucket);
+                request.SetKey(uri);
+                const auto response = impl->HeadObject(request);
+                if (!response.IsSuccess()) 
+                {
+                    ERRORLOG("File not found",uri,response.GetError().GetMessage());
+                }
+                else 
+                {
+                    size = response.GetResult().GetContentLength();
+                }
+            }
+            else
+            {
+                ERRORLOG("implPtrType is nullptr");
+            }
+            return size;
+        }
+
         // Checks if remote dir exists. Bases on MLSD command response parsing.
         bool remoteUriExists(const std::string& uri,const std::string& bucket,const implPtrType& impl) 
         {
@@ -581,6 +607,39 @@ namespace nx_spl
             }
         }
 
+        size_t curlWriteCallback(void* contents, size_t size, size_t nmemb, std::string* response) 
+        {
+            INFOLOG("curlWriteCallback");
+            response->append(static_cast<char*>(contents), size * nmemb);
+            return size * nmemb;
+        }
+
+        std::string executeCommand(const std::string& command) 
+        {
+            // Open a pipe to the command and capture its output
+            std::string result;
+            FILE* pipe = popen(command.c_str(), "r");
+            
+            if (!pipe) {
+                std::cerr << "popen failed!" << std::endl;
+                return "";
+            }
+
+            char buffer[128];
+            while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+                result += buffer;
+            }
+
+            int status = pclose(pipe);
+
+            if (status == -1) {
+                std::cerr << "pclose failed!" << std::endl;
+            } else {
+                std::cout << "Command exited with status " << status << std::endl;
+            }
+
+            return result;
+        }
         
     }
 
@@ -641,7 +700,7 @@ namespace nx_spl
 
     const char *STORAGE_METHOD_CALL S3StorageFactory::storageType() const
     {
-        return "ftp";
+        return "s3";
     }
 
     #define ERROR_LIST(APPLY) \
@@ -902,7 +961,7 @@ namespace nx_spl
         
         if(m_impl.get() != nullptr)
         {
-            uint64_t size = fileSize(url,ecode);
+            uint64_t size = aux::getRemoteFileSize(url,m_bucket,m_impl);
             Aws::S3::Model::DeleteObjectRequest request;
             request.WithBucket(m_bucket)
                     .WithKey(url);
@@ -1144,29 +1203,10 @@ namespace nx_spl
         if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
             return 0;
 
-        uint64_t size = 0;
-        if(m_impl.get() != nullptr)
-        {
-            Aws::S3::Model::HeadObjectRequest request;
-            request.SetBucket(m_bucket);
-            request.SetKey(url);
-            const auto response = m_impl->HeadObject(request);
-            if (!response.IsSuccess()) 
-            {
-                ERRORLOG("File not found",url,response.GetError().GetMessage());
-            }
-            else 
-            {
-                size = response.GetResult().GetContentLength();
-                INFOLOG("File size:",size);
-                m_freebucketSize = m_freebucketSize - size;
-                INFOLOG("Free bucket size:",m_freebucketSize);
-            }
-        }
-        else
-        {
-            ERRORLOG("implPtrType is nullptr");
-        }
+        uint64_t size = aux::getRemoteFileSize(url,m_bucket,m_impl);
+        INFOLOG("File size:",size);
+        m_freebucketSize = m_freebucketSize - size;
+        INFOLOG("Free bucket size:",m_freebucketSize);
         return size;
     }
 
