@@ -9,7 +9,6 @@
 #include <fstream>
 #include <ctime>
 #include <sstream>
-#include <filesystem>
 #include <iostream>
 
 #include <aws/core/Aws.h>
@@ -28,8 +27,6 @@
 #include <curl/curl.h>
 
 #include "storage/third_party_storage.h"
-
-namespace fs = std::filesystem;
 
 namespace nx_spl
 {
@@ -80,109 +77,109 @@ namespace nx_spl
             std::string fullPath;
         }; // struct FileNameAndPath
 
-        class DailyLogger 
-        {
-            public:
-                enum LogPriority 
-                {
-                    DebugP, InfoP, WarnP, ErrorP, CriticalP, FatalP
-                };
+        // class DailyLogger 
+        // {
+        //     public:
+        //         enum LogPriority 
+        //         {
+        //             DebugP, InfoP, WarnP, ErrorP, CriticalP, FatalP
+        //         };
 
-            private:
-                static LogPriority verbosity;
-                static std::string logDirectory;
-                static std::string currentLogFile;
+        //     private:
+        //         static LogPriority verbosity;
+        //         static std::string logDirectory;
+        //         static std::string currentLogFile;
 
-            public:
-                static void SetVerbosity(LogPriority new_priority) 
-                {
-                    verbosity = new_priority;
-                }
+        //     public:
+        //         static void SetVerbosity(LogPriority new_priority) 
+        //         {
+        //             verbosity = new_priority;
+        //         }
 
-                template <typename... Args>
-                static void Log(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 
-                {
-                    if (priority >= verbosity) 
-                    {
-                        std::ofstream FILE(currentLogFile, std::ios_base::app);
+        //         template <typename... Args>
+        //         static void Log(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 
+        //         {
+        //             if (priority >= verbosity) 
+        //             {
+        //                 std::ofstream FILE(currentLogFile, std::ios_base::app);
 
-                        switch (priority) 
-                        {
-                            case DebugP: FILE << "Debug:\t"; break;
-                            case InfoP: FILE << "Info:\t"; break;
-                            case WarnP: FILE << "Warn:\t"; break;
-                            case ErrorP: FILE << "Error:\t"; break;
-                            case CriticalP: FILE << "Critical:\t"; break;
-                            case FatalP: FILE << "Fatal:\t"; break;
-                        }
+        //                 switch (priority) 
+        //                 {
+        //                     case DebugP: FILE << "Debug:\t"; break;
+        //                     case InfoP: FILE << "Info:\t"; break;
+        //                     case WarnP: FILE << "Warn:\t"; break;
+        //                     case ErrorP: FILE << "Error:\t"; break;
+        //                     case CriticalP: FILE << "Critical:\t"; break;
+        //                     case FatalP: FILE << "Fatal:\t"; break;
+        //                 }
 
-                        // Get current timestamp
-                        std::time_t rawTime;
-                        std::tm* timeInfo;
-                        char buffer[80];
+        //                 // Get current timestamp
+        //                 std::time_t rawTime;
+        //                 std::tm* timeInfo;
+        //                 char buffer[80];
 
-                        std::time(&rawTime);
-                        timeInfo = std::localtime(&rawTime);
+        //                 std::time(&rawTime);
+        //                 timeInfo = std::localtime(&rawTime);
 
-                        std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-                        std::string timestamp(buffer);
+        //                 std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
+        //                 std::string timestamp(buffer);
 
-                        FILE << "[" << timestamp << "] ";
+        //                 FILE << "[" << timestamp << "] ";
                         
-                        FILE << lineNumber << " : " << functionName << "\t";
-                        logMultipleStrings(FILE, std::forward<Args>(args)...);
-                        FILE << "\n";
-                        FILE.close();
-                        updateLogFile();
-                    }
-                }
+        //                 FILE << lineNumber << " : " << functionName << "\t";
+        //                 logMultipleStrings(FILE, std::forward<Args>(args)...);
+        //                 FILE << "\n";
+        //                 FILE.close();
+        //                 updateLogFile();
+        //             }
+        //         }
 
-                static void Initialize() 
-                {
-                    updateLogFile();
-                    createLogDirectory();
-                }
+        //         static void Initialize() 
+        //         {
+        //             updateLogFile();
+        //             createLogDirectory();
+        //         }
 
-            private:
-                static void updateLogFile() 
-                {
-                    std::time_t rawTime;
-                    std::tm* timeInfo;
-                    char buffer[80];
+        //     private:
+        //         static void updateLogFile() 
+        //         {
+        //             std::time_t rawTime;
+        //             std::tm* timeInfo;
+        //             char buffer[80];
 
-                    std::time(&rawTime);
-                    timeInfo = std::localtime(&rawTime);
+        //             std::time(&rawTime);
+        //             timeInfo = std::localtime(&rawTime);
 
-                    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", timeInfo);
-                    std::string currentDate(buffer);
+        //             std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", timeInfo);
+        //             std::string currentDate(buffer);
 
-                    if (currentLogFile.empty() || currentDate != currentLogFile) 
-                    {
-                        currentLogFile = logDirectory + "/log_" + currentDate + ".txt";
-                    }
-                }
+        //             if (currentLogFile.empty() || currentDate != currentLogFile) 
+        //             {
+        //                 currentLogFile = logDirectory + "/log_" + currentDate + ".txt";
+        //             }
+        //         }
 
-                static void createLogDirectory() 
-                {
-                    if (!fs::exists(logDirectory)) 
-                    {
-                        fs::create_directory(logDirectory);
-                    }
-                }
+        //         static void createLogDirectory() 
+        //         {
+        //             if (!fs::exists(logDirectory)) 
+        //             {
+        //                 fs::create_directory(logDirectory);
+        //             }
+        //         }
 
-                template <typename T>
-                static void logMultipleStrings(std::ostream& stream, T&& arg) 
-                {
-                    stream << "," << arg ;
-                }
+        //         template <typename T>
+        //         static void logMultipleStrings(std::ostream& stream, T&& arg) 
+        //         {
+        //             stream << "," << arg ;
+        //         }
 
-                template <typename T, typename... Args>
-                static void logMultipleStrings(std::ostream& stream, T&& arg, Args&&... args) 
-                {
-                    stream << "," << arg ;
-                    logMultipleStrings(stream, std::forward<Args>(args)...);
-                }
-        };
+        //         template <typename T, typename... Args>
+        //         static void logMultipleStrings(std::ostream& stream, T&& arg, Args&&... args) 
+        //         {
+        //             stream << "," << arg ;
+        //             logMultipleStrings(stream, std::forward<Args>(args)...);
+        //         }
+        // };
 
     } //namespace aux
 
