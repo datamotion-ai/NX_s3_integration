@@ -31,13 +31,24 @@
 #define S3_CONFIG_FILE "s3.config"
 #define S3_DEFAULT_TOTAL_SPACE 100LL * 1024 * 1024 * 1024 //100GB
 
-bool m_bucketSizeNeedUpdate = true;
+#define LICENSE_CONFIG_FILE "license.config"
+#define ONE_MINUTE 60 * 1000
+#define TEN_MINUTE 10 * 60 * 1000
+
+bool g_bucketSizeNeedUpdate = true;
 
 namespace nx_spl
 {
 
     namespace aux
     { 
+
+        size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output) 
+        {
+            size_t total_size = size * nmemb;
+            output->append(static_cast<char*>(contents), total_size);
+            return total_size;
+        }
 
         struct Url
         {
@@ -549,7 +560,7 @@ namespace nx_spl
         implPtrType        &impl        
         )
         {
-            DEBUGLOG("establishS3Connection",url,uaccessKey,usecreatKey,bucket);
+            INFOLOG("establishS3Connection",url,uaccessKey,usecreatKey,bucket);
             try
             {
                 Aws::Client::ClientConfiguration clientConfig;
@@ -630,18 +641,234 @@ namespace nx_spl
     }
 
     // S3StorageFactory
+
+    std::mutex nx_spl::S3StorageFactory::m_mutex;
+    bool  g_licenseAvailable = false;
+
     S3StorageFactory::S3StorageFactory()
     {
         // options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
         INFOLOG("S3StorageFactory::S3StorageFactory");
         Aws::InitAPI(options);
         std::srand((unsigned int) time(0));
+        m_timer.start(this, &S3StorageFactory::verifyLicenses,ONE_MINUTE);
     }
 
     S3StorageFactory::~S3StorageFactory()
     {
         INFOLOG("S3StorageFactory::~S3StorageFactory");
         Aws::ShutdownAPI(options);
+    }
+
+    void nx_spl::S3StorageFactory::verifyLicenses() 
+    {
+        INFOLOG("S3StorageFactory::verifyLicenses");
+        std::lock_guard<std::mutex> lock(m_mutex);
+        Json::Reader reader;
+
+        std::ifstream jsonFile(LICENSE_CONFIG_FILE);
+        if (!jsonFile.is_open()) 
+        {
+            ERRORLOG("Error opening config file:",LICENSE_CONFIG_FILE);
+            g_licenseAvailable = false;
+            m_timer.setInterval(ONE_MINUTE);
+            return;
+        }
+        else
+        {
+            Json::Value root;
+            if (!reader.parse(jsonFile, root)) 
+            {
+                ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
+                g_licenseAvailable = false;
+                m_timer.setInterval(ONE_MINUTE);
+                return ;
+            }
+
+            const std::string nxHostUrl = root["host"].asString();
+            const std::string nxUserName = root["username"].asString();
+            const std::string nxPassword = root["password"].asString();
+
+            std::string token;
+            if(createSession(nxHostUrl,nxUserName,nxPassword,token))
+            {
+                CURL* curl = curl_easy_init();
+                if (!curl) 
+                {
+                    ERRORLOG("Error initializing libcurl.");
+                    g_licenseAvailable = false;
+                }
+                else
+                {
+                    std::string url = "https://" + nxHostUrl + ":7001/rest/v2/licenses";
+                    std::string acceptHeader = "accept: application/json";
+                    std::string runtimeGuidHeader = "x-runtime-guid: " + token;
+                    
+                    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+                    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
+
+                    struct curl_slist* headers = NULL;
+                    headers = curl_slist_append(headers, acceptHeader.c_str());
+                    headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
+                    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+                    std::string response;
+                    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
+                    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+                    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+                    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+                    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
+
+                    CURLcode res1 = curl_easy_perform(curl);
+                    if (res1 != CURLE_OK) 
+                    {
+                        ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
+                        g_licenseAvailable = false;
+                    } 
+                    else 
+                    {
+
+                        Json::Value jsonData;
+                        Json::CharReaderBuilder jsonReaderBuilder;
+                        std::istringstream jsonStream(response);
+                        Json::parseFromStream(jsonReaderBuilder, jsonStream, &jsonData, nullptr);
+
+                        for (const auto& jsonObject : jsonData) 
+                        {
+
+                            std::istringstream iss(jsonObject["licenseBlock"].asString());
+                            std::vector<std::string> lines;
+                            std::string line;
+
+                            while (std::getline(iss, line, '\n')) 
+                            {
+                                lines.push_back(line);
+                            }
+
+                            Json::Value licenseObject;
+                            
+                            for (const auto& line : lines) 
+                            {
+                                size_t equalPos = line.find('=');
+                                if (equalPos != std::string::npos) 
+                                {
+                                    std::string key = line.substr(0, equalPos);
+                                    std::string value = line.substr(equalPos + 1);
+                                    licenseObject[key] = value;
+                                }
+                            }
+
+                            if (licenseObject.isMember("EXPIRATION")) 
+                            {
+                                std::string expirationValue = licenseObject["EXPIRATION"].asString();
+                                INFOLOG("---EXPIRATION---->",expirationValue);
+
+                                std::time_t rawTime;
+                                std::tm* timeInfo;
+                                char buffer[80];
+
+                                std::time(&rawTime);
+                                timeInfo = std::localtime(&rawTime);
+
+                                std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
+                                std::string timestamp(buffer);
+
+                                if(timestamp <= expirationValue)
+                                {
+                                    INFOLOG("***Valid license***");
+                                    g_licenseAvailable = true;
+                                    m_timer.setInterval(TEN_MINUTE);
+                                    break;
+                                }
+                                else
+                                {
+                                    INFOLOG("Invalid license");
+                                    g_licenseAvailable = false;
+                                }
+                            } 
+                            else 
+                            {
+                                ERRORLOG("Key 'EXPIRATION' not found in the JSON object");
+                                g_licenseAvailable = false;
+                            }
+
+                        }
+                    }
+                    curl_slist_free_all(headers);
+                    curl_easy_reset(curl);
+                }
+            }
+            else
+            {
+                ERRORLOG("Failed to create session!!");
+                g_licenseAvailable = false;
+            }
+            if(g_licenseAvailable == false)
+            {
+                g_licenseAvailable = false;
+                m_timer.setInterval(ONE_MINUTE);
+            }
+        }
+    }
+
+    bool S3StorageFactory::createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string &token) const
+    {
+        INFOLOG("S3StorageFactory::createSession",host,usr,pswd);
+        bool ret = false;
+        CURL* curl = curl_easy_init();
+        if (!curl) 
+        {
+            ERRORLOG("Error initializing libcurl.");
+        }
+        else
+        {
+            std::string url = "https://" + host +  ":7001/rest/v2/login/sessions";
+            INFOLOG("url",url);
+            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+            curl_easy_setopt(curl, CURLOPT_POST, 1L);
+
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
+
+            struct curl_slist* headers = nullptr;
+            headers = curl_slist_append(headers, "accept: application/json");
+            headers = curl_slist_append(headers, "Content-Type: application/json");
+            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+            std::string data = "{\"username\":\""+ usr + "\",\"password\":\"" + pswd + "\",\"setCookie\":true}";
+            INFOLOG("data",data);
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
+
+            std::string response;
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+            CURLcode res1 = curl_easy_perform(curl);
+            if (res1 != CURLE_OK) {
+                ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
+            } else {
+                Json::Value root;
+                Json::Reader reader;
+                if(reader.parse(response, root))
+                {
+                    token = root["token"].asString();
+                    ret = true;
+                }
+                else
+                {
+                    ERRORLOG("Invalid json resopense",response);
+                }
+                
+            }
+            curl_slist_free_all(headers);
+            curl_easy_reset(curl);
+        }
+        return ret;
     }
 
     const char** STORAGE_METHOD_CALL S3StorageFactory::findAvailable() const
@@ -652,7 +879,7 @@ namespace nx_spl
 
     Storage *STORAGE_METHOD_CALL S3StorageFactory::createStorage(const char *url, int *ecode)
     {
-        DEBUGLOG("S3StorageFactory::createStorage",url);
+        INFOLOG("S3StorageFactory::createStorage",url);
         Storage* ret = nullptr;
         *ecode = error::NoError;
         try
@@ -686,7 +913,25 @@ namespace nx_spl
 
     const char *STORAGE_METHOD_CALL S3StorageFactory::storageType() const
     {
-        return "s3";
+        DEBUGLOG("S3StorageFactory::storageType");
+        static bool pluginIntegrated = false;
+        if(pluginIntegrated == false)
+        {
+            pluginIntegrated = true;
+            return "s3";
+        }
+        else
+        {
+            if(isLicenseAvailable())
+            {
+                return "s3";
+            }
+            else
+            {
+                return "unknown";
+            } 
+            
+        }
     }
 
     #define ERROR_LIST(APPLY) \
@@ -704,11 +949,19 @@ namespace nx_spl
 
     const char *S3StorageFactory::lastErrorMessage(int ecode) const
     {
+        // std::lock_guard<std::mutex> lock(m_mutex);
         switch(ecode)
         {
             ERROR_LIST(STR_ERROR);
         }
         return "";
+    }
+
+    bool nx_spl::S3StorageFactory::isLicenseAvailable() 
+    {
+        DEBUGLOG("S3StorageFactory::isLicenseAvailable");
+        std::lock_guard<std::mutex> lock(m_mutex);
+        return g_licenseAvailable;
     }
 
     #undef PRINT_ERROR
@@ -747,6 +1000,7 @@ namespace nx_spl
         DEBUGLOG("S3StorageFactory::releaseRef");
         return p_releaseRef();
     }
+
     S3Storage::S3Storage(const std::string &url) : 
     m_available(false),
     m_freebucketSize(S3_DEFAULT_TOTAL_SPACE),
@@ -824,9 +1078,14 @@ namespace nx_spl
     }
     int STORAGE_METHOD_CALL S3Storage::isAvailable() const
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::isAvailable");
+        std::lock_guard<std::mutex> lock(m_mutex);
         m_available = false;
+        if(S3StorageFactory::isLicenseAvailable() == false)
+        {
+            ERRORLOG("Invalid License!!");
+            return 0;
+        }
         if(m_impl != nullptr)
         {
             auto outcome = m_impl->ListBuckets();
@@ -852,14 +1111,19 @@ namespace nx_spl
                 m_available = aux::establishS3Connection(m_url,m_accessKey,m_secretKey,m_bucket,m_impl);
             }
         }
-        return m_available;
+        else
+        {
+            ERRORLOG("implPtrType is nullptr!");
+        }
+        if(m_available)
+            return 1;
+        else
+            return 0;
     }
     IODevice *STORAGE_METHOD_CALL S3Storage::open(const char *uri, int flags, int *ecode) const
     {
-        // std::lock_guard<std::mutex> lock(m_mutex);
         INFOLOG("S3Storage::open",uri,flags);
         *ecode = error::NoError;
-
         IODevice *ret = nullptr;
         if (!isAvailable())
         {
@@ -867,28 +1131,31 @@ namespace nx_spl
             INFOLOG("S3 not connected");
             return ret;
         }
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
 
-        try
-        {
-            ret = new S3IODevice(
-                uri,
-                m_bucket.c_str(),
-                flags,
-                m_impl
-            );
-            return ret;
-        }
-        catch (const aux::BadUrlException& e)
-        {
-            *ecode = error::UrlNotExists;
-            ERRORLOG(e.what());
-            return nullptr;
-        }
-        catch (...)
-        {
-            ERRORLOG("Unable to open file",uri,m_bucket,flags);
-            *ecode = error::UnknownError;
-            return nullptr;
+            try
+            {
+                ret = new S3IODevice(
+                    uri,
+                    m_bucket.c_str(),
+                    flags,
+                    m_impl
+                );
+                return ret;
+            }
+            catch (const aux::BadUrlException& e)
+            {
+                *ecode = error::UrlNotExists;
+                ERRORLOG(e.what());
+                return nullptr;
+            }
+            catch (...)
+            {
+                ERRORLOG("Unable to open file",uri,m_bucket,flags);
+                *ecode = error::UnknownError;
+                return nullptr;
+            }
         }
     }
     
@@ -896,11 +1163,16 @@ namespace nx_spl
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::getFreeSpace");
+        if(S3StorageFactory::isLicenseAvailable() == false)
+        {
+            // ERRORLOG("Invalid License!!");
+            return 0;
+        }
         if (ecode)
         *ecode = error::NoError;
         uint64_t totalSize = 0;
         
-        if(m_bucketSizeNeedUpdate)
+        if(g_bucketSizeNeedUpdate)
         {
             INFOLOG("Updating Free size");
             try
@@ -914,7 +1186,7 @@ namespace nx_spl
             }
             m_freebucketSize = getTotalSpace(ecode) - totalSize;
             INFOLOG("Free size",m_freebucketSize);
-            m_bucketSizeNeedUpdate = false;
+            g_bucketSizeNeedUpdate = false;
         }
         
         return m_freebucketSize;  
@@ -923,6 +1195,11 @@ namespace nx_spl
     uint64_t STORAGE_METHOD_CALL S3Storage::getTotalSpace(int *ecode) const
     {
         DEBUGLOG("S3Storage::getTotalSpace");
+        if(S3StorageFactory::isLicenseAvailable() == false)
+        {
+            // ERRORLOG("Invalid License!!");
+            return 0;
+        }
         if (ecode)
         *ecode = error::NoError;
         return m_totalSpace;
@@ -997,7 +1274,7 @@ namespace nx_spl
             else 
             {
                 *ecode = error::NoError;
-                m_bucketSizeNeedUpdate = true;
+                g_bucketSizeNeedUpdate = true;
                 INFOLOG("deleted directory",url,m_bucket);
             }
         }
@@ -1701,7 +1978,7 @@ extern "C"
     NX_PLUGIN_API nxpl::PluginInterface* createNXPluginInstance()
     {
         nx_spl::aux::DailyLogger::Initialize();
-        DEBUGLOG("create  NXPlugin Instance");
+        INFOLOG("create  NXPlugin Instance");
         
         return new nx_spl::S3StorageFactory();
     }
