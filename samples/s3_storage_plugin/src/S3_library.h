@@ -1,4 +1,5 @@
-#pragma once
+#ifndef S3_LIBRARY_H
+#define S3_LIBRARY_H
 
 #include <vector>
 #include <string>
@@ -27,6 +28,7 @@
 #include <curl/curl.h>
 
 #include "storage/third_party_storage.h"
+#include "timer.h"
 
 namespace nx_spl
 {
@@ -76,111 +78,7 @@ namespace nx_spl
             std::string name;
             std::string fullPath;
         }; // struct FileNameAndPath
-
-        // class DailyLogger 
-        // {
-        //     public:
-        //         enum LogPriority 
-        //         {
-        //             DebugP, InfoP, WarnP, ErrorP, CriticalP, FatalP
-        //         };
-
-        //     private:
-        //         static LogPriority verbosity;
-        //         static std::string logDirectory;
-        //         static std::string currentLogFile;
-
-        //     public:
-        //         static void SetVerbosity(LogPriority new_priority) 
-        //         {
-        //             verbosity = new_priority;
-        //         }
-
-        //         template <typename... Args>
-        //         static void Log(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 
-        //         {
-        //             if (priority >= verbosity) 
-        //             {
-        //                 std::ofstream FILE(currentLogFile, std::ios_base::app);
-
-        //                 switch (priority) 
-        //                 {
-        //                     case DebugP: FILE << "Debug:\t"; break;
-        //                     case InfoP: FILE << "Info:\t"; break;
-        //                     case WarnP: FILE << "Warn:\t"; break;
-        //                     case ErrorP: FILE << "Error:\t"; break;
-        //                     case CriticalP: FILE << "Critical:\t"; break;
-        //                     case FatalP: FILE << "Fatal:\t"; break;
-        //                 }
-
-        //                 // Get current timestamp
-        //                 std::time_t rawTime;
-        //                 std::tm* timeInfo;
-        //                 char buffer[80];
-
-        //                 std::time(&rawTime);
-        //                 timeInfo = std::localtime(&rawTime);
-
-        //                 std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-        //                 std::string timestamp(buffer);
-
-        //                 FILE << "[" << timestamp << "] ";
-                        
-        //                 FILE << lineNumber << " : " << functionName << "\t";
-        //                 logMultipleStrings(FILE, std::forward<Args>(args)...);
-        //                 FILE << "\n";
-        //                 FILE.close();
-        //                 updateLogFile();
-        //             }
-        //         }
-
-        //         static void Initialize() 
-        //         {
-        //             updateLogFile();
-        //             createLogDirectory();
-        //         }
-
-        //     private:
-        //         static void updateLogFile() 
-        //         {
-        //             std::time_t rawTime;
-        //             std::tm* timeInfo;
-        //             char buffer[80];
-
-        //             std::time(&rawTime);
-        //             timeInfo = std::localtime(&rawTime);
-
-        //             std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", timeInfo);
-        //             std::string currentDate(buffer);
-
-        //             if (currentLogFile.empty() || currentDate != currentLogFile) 
-        //             {
-        //                 currentLogFile = logDirectory + "/log_" + currentDate + ".txt";
-        //             }
-        //         }
-
-        //         static void createLogDirectory() 
-        //         {
-        //             if (!fs::exists(logDirectory)) 
-        //             {
-        //                 fs::create_directory(logDirectory);
-        //             }
-        //         }
-
-        //         template <typename T>
-        //         static void logMultipleStrings(std::ostream& stream, T&& arg) 
-        //         {
-        //             stream << "," << arg ;
-        //         }
-
-        //         template <typename T, typename... Args>
-        //         static void logMultipleStrings(std::ostream& stream, T&& arg, Args&&... args) 
-        //         {
-        //             stream << "," << arg ;
-        //             logMultipleStrings(stream, std::forward<Args>(args)...);
-        //         }
-        // };
-
+        
     } //namespace aux
 
     typedef std::shared_ptr<Aws::S3::S3Client> implPtrType;
@@ -395,9 +293,12 @@ namespace nx_spl
 
     private:
         ~S3StorageFactory();
+        void verifyLicenses() const;
+        bool createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string& token) const;
     private:
         Aws::SDKOptions options;
-        std::string m_crlresponse;
     }; // class S3StorageFactory
 
 }
+
+#endif //S3_LIBRARY_H
