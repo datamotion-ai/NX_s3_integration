@@ -575,7 +575,8 @@ namespace nx_spl
                 if(impl.get() != nullptr)
                 {
                     auto outcome = impl->ListBuckets();
-                    if (outcome.IsSuccess()) {
+                    if (outcome.IsSuccess()) 
+                    {
                         bool bucketFound = false;
                         auto objects = outcome.GetResult().GetBuckets();
                         for (const auto& object : objects) 
@@ -596,6 +597,10 @@ namespace nx_spl
                             INFOLOG("SuccessFully establish s3 connection with host: ",url);
                             return true;
                         }
+                    }
+                    else
+                    {
+                        ERRORLOG("Failed to list bucket lists!! connection failed!!");
                     }
                 }
                 else
