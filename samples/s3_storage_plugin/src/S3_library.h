@@ -300,10 +300,7 @@ namespace nx_spl
     private:
         Aws::SDKOptions options;
         static std::mutex  m_mutex;
-        // static  bool m_licenseAvailable;
         Timer m_timer;
     }; // class S3StorageFactory
 
 }
-
-#endif //S3_LIBRARY_H

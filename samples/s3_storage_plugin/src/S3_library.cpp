@@ -43,13 +43,6 @@ namespace nx_spl
     namespace aux
     { 
 
-        size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output) 
-        {
-            size_t total_size = size * nmemb;
-            output->append(static_cast<char*>(contents), total_size);
-            return total_size;
-        }
-
         struct Url
         {
             std::string uaccessKey;
@@ -949,7 +942,6 @@ namespace nx_spl
 
     const char *S3StorageFactory::lastErrorMessage(int ecode) const
     {
-        // std::lock_guard<std::mutex> lock(m_mutex);
         switch(ecode)
         {
             ERROR_LIST(STR_ERROR);
