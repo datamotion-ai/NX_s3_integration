@@ -304,3 +304,5 @@ namespace nx_spl
     }; // class S3StorageFactory
 
 }
+
+#endif //S3_LIBRARY_H

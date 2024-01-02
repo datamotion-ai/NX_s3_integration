@@ -43,6 +43,13 @@ namespace nx_spl
     namespace aux
     { 
 
+        size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output) 
+        {
+            size_t total_size = size * nmemb;
+            output->append(static_cast<char*>(contents), total_size);
+            return total_size;
+        }
+
         struct Url
         {
             std::string uaccessKey;
