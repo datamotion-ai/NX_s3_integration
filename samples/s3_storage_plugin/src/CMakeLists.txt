@@ -4,8 +4,10 @@ cmake_minimum_required(VERSION 3.3.2)
 project(s3_storage_plugin)
 
 find_package(AWSSDK CONFIG COMPONENTS s3 REQUIRED)
-find_package(jsoncpp REQUIRED)
 find_package(CURL REQUIRED)
+find_package(ZLIB REQUIRED)
+
+Message(STATUS "All linked libs: ${AWSSDK_LINK_LIBRARIES}")
 
 file(GLOB_RECURSE source_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*)
 add_library(s3_storage_plugin SHARED ${source_files} )
@@ -26,15 +28,8 @@ target_compile_definitions(s3_storage_plugin
 
 target_include_directories(s3_storage_plugin PRIVATE
     ../../../src #< SDK headers.
-    /usr/include/jsoncpp #< Json headers.
     ${AWSSDK_INCLUDE_DIRS}
     ${CURL_INCLUDE_DIRS} #< curl headers.
-)
-
-target_compile_definitions(s3_storage_plugin PRIVATE
-    # Needed for ftplib.
-    -DNOSSL
-    -DNOLFS
 )
 
 if(WIN32)
@@ -53,39 +48,4 @@ set_target_properties(s3_storage_plugin PROPERTIES
     CXX_EXTENSIONS NO
 )
 
-target_link_libraries(s3_storage_plugin PRIVATE ${AWSSDK_LIBRARIES} jsoncpp ${CURL_LIBRARIES})
-
-# # Install the library and headers
-# install(TARGETS s3_storage_plugin
-#     EXPORT s3_storage_pluginTargets
-#     LIBRARY DESTINATION lib
-#     ARCHIVE DESTINATION lib
-#     RUNTIME DESTINATION bin
-#     INCLUDES DESTINATION include
-# )
-
-# install(DIRECTORY ../../../src/
-#     DESTINATION include
-#     FILES_MATCHING PATTERN "*.h"
-# )
-
-# # Export target information to the package
-# export(EXPORT s3_storage_pluginTargets
-#     FILE ${CMAKE_CURRENT_BINARY_DIR}/s3_storage_pluginTargets.cmake
-#     NAMESPACE s3_storage_plugin::
-# )
-
-# # Install exported target information
-# install(EXPORT s3_storage_pluginTargets
-#     FILE s3_storage_pluginTargets.cmake
-#     NAMESPACE s3_storage_plugin::
-#     DESTINATION lib/cmake
-# )
-
-# # Create a release package (tarball)
-# set(CPACK_GENERATOR "TGZ")
-# set(CPACK_PACKAGE_NAME "${PROJECT_NAME}")
-# set(CPACK_PACKAGE_VERSION "1.0.0")  # Set your actual version
-# set(CPACK_PACKAGE_FILE_NAME "${CPACK_PACKAGE_NAME}-${CPACK_PACKAGE_VERSION}")
-# include(CPack)
-
+target_link_libraries(s3_storage_plugin PRIVATE ${AWSSDK_LINK_LIBRARIES} /home/ubuntu/jsoncpp/build/lib/libjsoncpp.a)
