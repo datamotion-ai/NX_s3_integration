@@ -4,10 +4,12 @@ cmake_minimum_required(VERSION 3.3.2)
 project(s3_storage_plugin)
 
 find_package(AWSSDK CONFIG COMPONENTS s3 REQUIRED)
-find_package(CURL REQUIRED)
 find_package(ZLIB REQUIRED)
 
-Message(STATUS "All linked libs: ${AWSSDK_LINK_LIBRARIES}")
+# add_definitions(-DCURL_STATICLIB)
+
+Message(STATUS "All linked libs: ${AWSSDK_LINK_LIBRARIES} ")
+Message(STATUS "current cmake directory ${CMAKE_CURRENT_SOURCE_DIR}")
 
 file(GLOB_RECURSE source_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*)
 add_library(s3_storage_plugin SHARED ${source_files} )
@@ -29,7 +31,7 @@ target_compile_definitions(s3_storage_plugin
 target_include_directories(s3_storage_plugin PRIVATE
     ../../../src #< SDK headers.
     ${AWSSDK_INCLUDE_DIRS}
-    ${CURL_INCLUDE_DIRS} #< curl headers.
+    lib/jsoncpp/lib/jsoncpp/include
 )
 
 if(WIN32)
@@ -46,6 +48,7 @@ set_target_properties(s3_storage_plugin PROPERTIES
     CXX_STANDARD 17
     CXX_STANDARD_REQUIRED YES
     CXX_EXTENSIONS NO
+    LINK_FLAGS "-Wl,-z,defs"
 )
 
-target_link_libraries(s3_storage_plugin PRIVATE ${AWSSDK_LINK_LIBRARIES} /home/ubuntu/jsoncpp/build/lib/libjsoncpp.a)
+target_link_libraries(s3_storage_plugin PRIVATE ${AWSSDK_LINK_LIBRARIES} ${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/jsoncpp/build/lib/libjsoncpp.a)
