@@ -11,14 +11,16 @@
 #include <cstdlib>
 #include <iostream>
 #include <cstdio>
-#include <sstream>
+#include <filesystem>
 #include <json/json.h>
+#include <curl/curl.h>
 
 #if defined(__linux__) || defined(__APPLE__)
 #   include <sys/stat.h>
 #endif
 
 #include "S3_library.h"
+#include "daily_loger.hpp"
 
 #ifdef _MSC_VER
 #   define NOEXCEPT
@@ -26,23 +28,14 @@
 #   define NOEXCEPT noexcept
 #endif
 
-#define BUCKET_NAME "nxoptics"
 #define S3_CONFIG_FILE "s3.config"
 #define S3_DEFAULT_TOTAL_SPACE 100LL * 1024 * 1024 * 1024 //100GB
 
-#define DEBUGLOG(...) ""
-//#define DEBUGLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::DebugP, __FUNCTION__, __LINE__, __VA_ARGS__);
-#define INFOLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::InfoP, __FUNCTION__, __LINE__, __VA_ARGS__);
-#define ERRORLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::ErrorP, __FUNCTION__, __LINE__, __VA_ARGS__);
-
 bool m_bucketSizeNeedUpdate = true;
-
-nx_spl::aux::DailyLogger::LogPriority nx_spl::aux::DailyLogger::DailyLogger::verbosity = nx_spl::aux::DailyLogger::LogPriority::DebugP;
-std::string nx_spl::aux::DailyLogger::logDirectory = "./logs";  // Default log directory
-std::string nx_spl::aux::DailyLogger::currentLogFile;
 
 namespace nx_spl
 {
+
     namespace aux
     { 
 
@@ -607,13 +600,6 @@ namespace nx_spl
             }
         }
 
-        size_t curlWriteCallback(void* contents, size_t size, size_t nmemb, std::string* response) 
-        {
-            INFOLOG("curlWriteCallback");
-            response->append(static_cast<char*>(contents), size * nmemb);
-            return size * nmemb;
-        }
-
         std::string executeCommand(const std::string& command) 
         {
             // Open a pipe to the command and capture its output
@@ -873,6 +859,7 @@ namespace nx_spl
         // std::lock_guard<std::mutex> lock(m_mutex);
         INFOLOG("S3Storage::open",uri,flags);
         *ecode = error::NoError;
+
         IODevice *ret = nullptr;
         if (!isAvailable())
         {
@@ -1715,6 +1702,7 @@ extern "C"
     {
         nx_spl::aux::DailyLogger::Initialize();
         DEBUGLOG("create  NXPlugin Instance");
+        
         return new nx_spl::S3StorageFactory();
     }
 }

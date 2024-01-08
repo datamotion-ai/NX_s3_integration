@@ -3,7 +3,7 @@
 cmake_minimum_required(VERSION 3.3.2)
 project(s3_storage_plugin)
 
-find_package(AWSSDK REQUIRED COMPONENTS s3)
+find_package(AWSSDK CONFIG COMPONENTS s3 REQUIRED)
 find_package(jsoncpp REQUIRED)
 find_package(CURL REQUIRED)
 
@@ -27,7 +27,8 @@ target_compile_definitions(s3_storage_plugin
 target_include_directories(s3_storage_plugin PRIVATE
     ../../../src #< SDK headers.
     /usr/include/jsoncpp #< Json headers.
-    # ${CURL_INCLUDE_DIRS} #< curl headers.
+    ${AWSSDK_INCLUDE_DIRS}
+    ${CURL_INCLUDE_DIRS} #< curl headers.
 )
 
 target_compile_definitions(s3_storage_plugin PRIVATE
@@ -52,7 +53,7 @@ set_target_properties(s3_storage_plugin PROPERTIES
     CXX_EXTENSIONS NO
 )
 
-target_link_libraries(s3_storage_plugin PRIVATE ${AWSSDK_LINK_LIBRARIES} jsoncpp ${CURL_LIBRARIES})
+target_link_libraries(s3_storage_plugin PRIVATE ${AWSSDK_LIBRARIES} jsoncpp ${CURL_LIBRARIES})
 
 # # Install the library and headers
 # install(TARGETS s3_storage_plugin
