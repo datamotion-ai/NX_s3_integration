@@ -297,6 +297,7 @@ namespace nx_spl
         ~S3StorageFactory();
         void verifyLicenses() ;
         bool createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string& token) const;
+        bool isSessionExpired(const std::string &host,std::string& token) const;
     private:
         Aws::SDKOptions options;
         static std::mutex  m_mutex;

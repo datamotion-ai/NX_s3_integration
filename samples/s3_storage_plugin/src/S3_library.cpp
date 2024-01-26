@@ -694,122 +694,124 @@ namespace nx_spl
             const std::string nxUserName = root["username"].asString();
             const std::string nxPassword = root["password"].asString();
 
-            std::string token;
-            if(createSession(nxHostUrl,nxUserName,nxPassword,token))
+            static std::string token;
+            if(token.empty() || isSessionExpired(nxHostUrl, token))
             {
-                CURL* curl = curl_easy_init();
-                if (!curl) 
+                if(!createSession(nxHostUrl,nxUserName,nxPassword,token))
                 {
-                    ERRORLOG("Error initializing libcurl.");
+                    ERRORLOG("Failed to create session!!");
                     g_licenseAvailable = false;
+                    m_timer.setInterval(ONE_MINUTE);
+                    return;
                 }
-                else
-                {
-                    std::string url = "https://" + nxHostUrl + ":7001/rest/v2/licenses";
-                    std::string acceptHeader = "accept: application/json";
-                    std::string runtimeGuidHeader = "x-runtime-guid: " + token;
-                    
-                    curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
-                    curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
-
-                    struct curl_slist* headers = NULL;
-                    headers = curl_slist_append(headers, acceptHeader.c_str());
-                    headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
-                    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-                    std::string response;
-                    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
-                    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-                    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-                    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-                    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
-
-                    CURLcode res1 = curl_easy_perform(curl);
-                    if (res1 != CURLE_OK) 
-                    {
-                        ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
-                        g_licenseAvailable = false;
-                    } 
-                    else 
-                    {
-
-                        Json::Value jsonData;
-                        Json::CharReaderBuilder jsonReaderBuilder;
-                        std::istringstream jsonStream(response);
-                        Json::parseFromStream(jsonReaderBuilder, jsonStream, &jsonData, nullptr);
-
-                        for (const auto& jsonObject : jsonData) 
-                        {
-
-                            std::istringstream iss(jsonObject["licenseBlock"].asString());
-                            std::vector<std::string> lines;
-                            std::string line;
-
-                            while (std::getline(iss, line, '\n')) 
-                            {
-                                lines.push_back(line);
-                            }
-
-                            Json::Value licenseObject;
-                            
-                            for (const auto& line : lines) 
-                            {
-                                size_t equalPos = line.find('=');
-                                if (equalPos != std::string::npos) 
-                                {
-                                    std::string key = line.substr(0, equalPos);
-                                    std::string value = line.substr(equalPos + 1);
-                                    licenseObject[key] = value;
-                                }
-                            }
-
-                            if (licenseObject.isMember("EXPIRATION")) 
-                            {
-                                std::string expirationValue = licenseObject["EXPIRATION"].asString();
-                                INFOLOG("---EXPIRATION---->",expirationValue);
-
-                                std::time_t rawTime;
-                                std::tm* timeInfo;
-                                char buffer[80];
-
-                                std::time(&rawTime);
-                                timeInfo = std::localtime(&rawTime);
-
-                                std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-                                std::string timestamp(buffer);
-
-                                if(timestamp <= expirationValue)
-                                {
-                                    INFOLOG("***Valid license***");
-                                    g_licenseAvailable = true;
-                                    m_timer.setInterval(TEN_MINUTE);
-                                    break;
-                                }
-                                else
-                                {
-                                    INFOLOG("Invalid license");
-                                    g_licenseAvailable = false;
-                                }
-                            } 
-                            else 
-                            {
-                                ERRORLOG("Key 'EXPIRATION' not found in the JSON object");
-                                g_licenseAvailable = false;
-                            }
-
-                        }
-                    }
-                    curl_slist_free_all(headers);
-                    curl_easy_reset(curl);
-                }
+            }
+            CURL* curl = curl_easy_init();
+            if (!curl) 
+            {
+                ERRORLOG("Error initializing libcurl.");
+                g_licenseAvailable = false;
             }
             else
             {
-                ERRORLOG("Failed to create session!!");
-                g_licenseAvailable = false;
+                std::string url = "https://" + nxHostUrl + ":7001/rest/v2/licenses";
+                std::string acceptHeader = "accept: application/json";
+                std::string runtimeGuidHeader = "x-runtime-guid: " + token;
+                
+                curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+
+                curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
+
+                struct curl_slist* headers = NULL;
+                headers = curl_slist_append(headers, acceptHeader.c_str());
+                headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
+                curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+                std::string response;
+                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
+                curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+                curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
+
+                CURLcode res1 = curl_easy_perform(curl);
+                if (res1 != CURLE_OK) 
+                {
+                    ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
+                    g_licenseAvailable = false;
+                } 
+                else 
+                {
+                    INFOLOG("------->",response);
+                    Json::Value jsonData;
+                    Json::CharReaderBuilder jsonReaderBuilder;
+                    std::istringstream jsonStream(response);
+                    Json::parseFromStream(jsonReaderBuilder, jsonStream, &jsonData, nullptr);
+
+                    for (const auto& jsonObject : jsonData) 
+                    {
+
+                        std::istringstream iss(jsonObject["licenseBlock"].asString());
+                        std::vector<std::string> lines;
+                        std::string line;
+
+                        while (std::getline(iss, line, '\n')) 
+                        {
+                            lines.push_back(line);
+                        }
+
+                        Json::Value licenseObject;
+                        
+                        for (const auto& line : lines) 
+                        {
+                            size_t equalPos = line.find('=');
+                            if (equalPos != std::string::npos) 
+                            {
+                                std::string key = line.substr(0, equalPos);
+                                std::string value = line.substr(equalPos + 1);
+                                licenseObject[key] = value;
+                            }
+                        }
+
+                        if (licenseObject.isMember("EXPIRATION")) 
+                        {
+                            std::string expirationValue = licenseObject["EXPIRATION"].asString();
+                            INFOLOG("---EXPIRATION---->",expirationValue);
+
+                            std::time_t rawTime;
+                            std::tm* timeInfo;
+                            char buffer[80];
+
+                            std::time(&rawTime);
+                            timeInfo = std::localtime(&rawTime);
+
+                            std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
+                            std::string timestamp(buffer);
+
+                            if(timestamp <= expirationValue)
+                            {
+                                INFOLOG("***Valid license***");
+                                g_licenseAvailable = true;
+                                m_timer.setInterval(TEN_MINUTE);
+                                break;
+                            }
+                            else
+                            {
+                                INFOLOG("Invalid license");
+                                g_licenseAvailable = false;
+                            }
+                        } 
+                        else 
+                        {
+                            ERRORLOG("Key 'EXPIRATION' not found in the JSON object");
+                            g_licenseAvailable = false;
+                        }
+
+                    }
+                }
+                curl_slist_free_all(headers);
+                curl_easy_reset(curl);
             }
             if(g_licenseAvailable == false)
             {
@@ -857,12 +859,69 @@ namespace nx_spl
             if (res1 != CURLE_OK) {
                 ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
             } else {
+                INFOLOG("------->",response);
                 Json::Value root;
                 Json::Reader reader;
                 if(reader.parse(response, root))
                 {
                     token = root["token"].asString();
                     ret = true;
+                }
+                else
+                {
+                    ERRORLOG("Invalid json resopense",response);
+                }
+                
+            }
+            curl_slist_free_all(headers);
+            curl_easy_reset(curl);
+        }
+        return ret;
+    }
+
+    bool S3StorageFactory::isSessionExpired(const std::string &host, std::string &token) const
+    {
+        INFOLOG("S3StorageFactory::isSessionExpired",host,token);
+        bool ret = true;
+        CURL* curl = curl_easy_init();
+        if (!curl) 
+        {
+            ERRORLOG("Error initializing libcurl.");
+        }
+        else
+        {
+            std::string url = "https://" + host +  ":7001/rest/v2/login/sessions/" + token;
+            INFOLOG("url",url);
+            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
+
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
+
+            struct curl_slist* headers = nullptr;
+            headers = curl_slist_append(headers, "accept: application/json");
+            std::string runtimeGuidHeader = "x-runtime-guid: " + token;
+            headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
+            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+            std::string response;
+            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
+            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+            CURLcode res1 = curl_easy_perform(curl);
+            if (res1 != CURLE_OK) {
+                ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
+            } else {
+                INFOLOG("------->",response);
+                Json::Value root;
+                Json::Reader reader;
+                if(reader.parse(response, root))
+                {
+                    std::string tokenExpiration = root["expiresInS"].asString();
+                    if(!tokenExpiration.empty())
+                        ret = false;
                 }
                 else
                 {
