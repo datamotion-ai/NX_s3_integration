@@ -139,11 +139,11 @@ namespace nx_spl
         aux::FileNameAndPath    m_localfile;
         bool                    m_altered;
         long long               m_localsize;
-        mutable
-        std::mutex              m_mutex;
+        mutable std::mutex      m_mutex;
         std::string             m_implurl;
         std::string             m_user;
         std::string             m_passwd;
+        mutable FILE *                  m_file;
     }; // class S3IODevice
 
     // Fileinfo list is obtained from the server at construction phase.

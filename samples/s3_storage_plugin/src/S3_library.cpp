@@ -17,6 +17,9 @@
 
 #if defined(__linux__) || defined(__APPLE__)
 #   include <sys/stat.h>
+#elif defined (_WIN32)
+#   include <Windows.h>
+#   include <TlHelp32.h>
 #endif
 
 #include "S3_library.h"
@@ -276,16 +279,39 @@ namespace nx_spl
          */
         static FileNameAndPath localUniqueFilePath(const std::string& suffix = std::string())
         {
-            // std::cout << __LINE__ << ":" << __func__ << " : " << "suffix:" << suffix << std::endl;
             /* First, get a system tmp path*/
             std::string tmpFolder;
             #if defined (_WIN32)
-                char buf[MAX_PATH + 1];
-                DWORD result = GetTempPathA(sizeof(buf), buf);
-                assert(result > 0);
-                if (result == 0)
-                    std::cerr << "Failed to get a temporary folder path" << std::endl;
-                tmpFolder = buf;
+                tmpFolder = "C:/Users/Public/tmp";
+                if (!std::filesystem::exists(tmpFolder)) 
+                {
+                    int size_needed = MultiByteToWideChar(CP_UTF8, 0, &tmpFolder[0], static_cast<int>(tmpFolder.size()), nullptr, 0);
+                    std::wstring wstrTo(size_needed, 0);
+                    MultiByteToWideChar(CP_UTF8, 0, &tmpFolder[0], static_cast<int>(tmpFolder.size()), &wstrTo[0], size_needed);
+                    if (!CreateDirectoryW(wstrTo.c_str(), nullptr)) 
+                    {
+                        ERRORLOG("Error creating directory:",GetLastError());
+                        std::filesystem::create_directory(tmpFolder);
+                    }
+
+                    HANDLE hDir = CreateFileW(wstrTo.c_str(),
+                              GENERIC_READ | GENERIC_WRITE | DELETE,
+                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                              nullptr,
+                              OPEN_EXISTING,
+                              FILE_FLAG_BACKUP_SEMANTICS,
+                              nullptr);
+                    
+                    if (hDir == INVALID_HANDLE_VALUE) 
+                    {
+                        ERRORLOG("Error opening directory:",GetLastError());
+                        RemoveDirectoryW(wstrTo.c_str());
+                    }
+                    else
+                    {
+                        CloseHandle(hDir);
+                    }
+                }
             #elif defined (__unix__)
                 for (const auto& v: {"TMP", "TEMP", "TMPDIR", "TEMPDIR"})
                 {
@@ -315,13 +341,12 @@ namespace nx_spl
         // get local file size by it's name
         long long getFileSize(const char *fname)
         {
-            // std::cout << __LINE__ << ":" << __func__ << ": fname:" << fname << std::endl;
         #ifdef _WIN32
 
             HANDLE hFile = CreateFileA(
                 fname,
                 GENERIC_READ,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                 NULL,
                 OPEN_EXISTING,
                 FILE_ATTRIBUTE_NORMAL,
@@ -616,32 +641,32 @@ namespace nx_spl
             }
         }
 
-        std::string executeCommand(const std::string& command) 
-        {
-            // Open a pipe to the command and capture its output
-            std::string result;
-            FILE* pipe = popen(command.c_str(), "r");
-            
-            if (!pipe) {
-                std::cerr << "popen failed!" << std::endl;
-                return "";
-            }
+        //std::string executeCommand(const std::string& command) 
+        //{
+        //    // Open a pipe to the command and capture its output
+        //    std::string result;
+        //    FILE* pipe = popen(command.c_str(), "r");
+        //    
+        //    if (!pipe) {
+        //        std::cerr << "popen failed!" << std::endl;
+        //        return "";
+        //    }
 
-            char buffer[128];
-            while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-                result += buffer;
-            }
+        //    char buffer[128];
+        //    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        //        result += buffer;
+        //    }
 
-            int status = pclose(pipe);
+        //    int status = pclose(pipe);
 
-            if (status == -1) {
-                std::cerr << "pclose failed!" << std::endl;
-            } else {
-                std::cout << "Command exited with status " << status << std::endl;
-            }
+        //    if (status == -1) {
+        //        std::cerr << "pclose failed!" << std::endl;
+        //    } else {
+        //        std::cout << "Command exited with status " << status << std::endl;
+        //    }
 
-            return result;
-        }
+        //    return result;
+        //}
         
     }
 
@@ -652,7 +677,7 @@ namespace nx_spl
 
     S3StorageFactory::S3StorageFactory()
     {
-        // options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
+        options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
         INFOLOG("S3StorageFactory::S3StorageFactory");
         Aws::InitAPI(options);
         std::srand((unsigned int) time(0));
@@ -663,6 +688,7 @@ namespace nx_spl
     {
         INFOLOG("S3StorageFactory::~S3StorageFactory");
         Aws::ShutdownAPI(options);
+        nx_spl::aux::DailyLogger::Dinitialize();
     }
 
     void nx_spl::S3StorageFactory::verifyLicenses() 
@@ -716,6 +742,10 @@ namespace nx_spl
                 std::string url = "https://" + nxHostUrl + ":7001/rest/v2/licenses";
                 std::string acceptHeader = "accept: application/json";
                 std::string runtimeGuidHeader = "x-runtime-guid: " + token;
+
+                // std::string data = nxUserName + ":" + nxPassword;
+                // INFOLOG("data",data);
+                // curl_easy_setopt(curl, CURLOPT_USERPWD, data.c_str());
                 
                 curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
 
@@ -1130,6 +1160,7 @@ namespace nx_spl
         }
         catch(const aux::NetworkException& e)
         {
+            ERRORLOG("exception:", e.what());
             m_available = false;
             return;
         }
@@ -1195,8 +1226,8 @@ namespace nx_spl
             return ret;
         }
         {
+            DEBUGLOG("--------------------------1");
             std::lock_guard<std::mutex> lock(m_mutex);
-
             try
             {
                 ret = new S3IODevice(
@@ -1585,9 +1616,11 @@ namespace nx_spl
         m_pos(0),
         m_altered(false),
         m_localsize(0),
-        m_impl(impl)
+        m_impl(impl),
+        m_file(NULL)
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        
+        // std::lock_guard<std::mutex> lock(m_mutex);
         try
         {
             std::string remoteDir, remoteFile;
@@ -1619,6 +1652,8 @@ namespace nx_spl
                 throw aux::InternalErrorException(e.what());
             }
 
+            DEBUGLOG("File varification Done!!");
+
             if(mode & io::WriteOnly)
             {
                 if (!fileExists)
@@ -1649,6 +1684,7 @@ namespace nx_spl
                     request.SetBody(inputData);
 
                     Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
+                    static_cast<Aws::FStream*>(inputData.get())->close();
 
                     if (!outcome.IsSuccess()) 
                     {
@@ -1692,6 +1728,7 @@ namespace nx_spl
             }
             else if(mode & io::ReadOnly)
             {
+                DEBUGLOG("--------------------------1");
                 remove(m_localfile.fullPath.c_str());
                 FILE *f = fopen(m_localfile.fullPath.c_str(), "wb");
                 if (f == NULL)
@@ -1699,11 +1736,11 @@ namespace nx_spl
                     ERRORLOG("Local file create failed:",m_localfile.fullPath)
                     throw aux::BadUrlException("couldn't create local temporary file");
                 }
+                fclose(f);
 
                 Aws::S3::Model::GetObjectRequest request;
                 request.SetBucket(m_bucket);
                 request.SetKey(m_uri);
-
                 Aws::S3::Model::GetObjectOutcome outcome = m_impl->GetObject(request);
 
                 if (!outcome.IsSuccess()) 
@@ -1714,7 +1751,6 @@ namespace nx_spl
                 else 
                 {
                     auto& objectStream = outcome.GetResultWithOwnership().GetBody();
-
                     std::ofstream fileStream(m_localfile.fullPath.c_str(), std::ios::out | std::ios::binary);
 
                     if (fileStream) 
@@ -1730,7 +1766,7 @@ namespace nx_spl
                     }
                 }
             }
-
+            
             if ((m_localsize = aux::getFileSize(m_localfile.fullPath.c_str())) == -1)
             {
                 ERRORLOG("Invalid local file size:",m_localfile.fullPath)
@@ -1742,6 +1778,7 @@ namespace nx_spl
             ERRORLOG("Error while IO operation",uri,bucket,mode);
             throw ;
         }
+        DEBUGLOG("--------------------------done");
     }
 
     uint32_t STORAGE_METHOD_CALL nx_spl::S3IODevice::write(const void *src, const uint32_t size, int *ecode)
@@ -1750,25 +1787,31 @@ namespace nx_spl
         std::lock_guard<std::mutex> lock(m_mutex);
         if (ecode)
             *ecode = error::NoError;
+        int ret = 0;
 
         if (!(m_mode & io::WriteOnly))
         {
             *ecode = error::WriteNotSupported;
             return 0;
         }
-        FILE * f = fopen(m_localfile.fullPath.c_str(), "r+b");
-        if (f == NULL)
+        m_file = fopen(m_localfile.fullPath.c_str(), "r+b");
+        if (m_file == NULL)
             goto bad_end;
 
-        if (fseek(f, (int)m_pos, SEEK_SET) != 0)
+        if (fseek(m_file, (int)m_pos, SEEK_SET) != 0)
             goto bad_end;
 
-        fwrite(src, 1, size, f);
+        fwrite(src, 1, size, m_file);
         m_pos += size;
         m_localsize += size;
         m_altered = true;
-        fclose(f);
         m_fileWriteCount++;
+        ret = fclose(m_file);
+        if(ret < 0)
+        {
+            DEBUGLOG("File closed Failed:",m_localfile.fullPath);
+        }
+        m_file = NULL;
         if(m_fileWriteCount > 10)
         {
             flush();
@@ -1777,9 +1820,16 @@ namespace nx_spl
         return size;
 
     bad_end:
-        if (f != NULL)
-            fclose(f);
         ERRORLOG("Error while writing file:",m_localfile.fullPath);
+        if (m_file == NULL)
+        {
+            ret = fclose(m_file);
+            if(ret != -1)
+            {
+                DEBUGLOG("File closed successfully:",m_localfile.fullPath);
+            }
+            m_file = NULL;
+        }
         *ecode = error::UnknownError;
         return 0;
     }
@@ -1789,6 +1839,8 @@ namespace nx_spl
         INFOLOG("S3IODevice::read",m_localfile.fullPath);
         std::lock_guard<std::mutex> lock(m_mutex);
         uint32_t readSize = 0;
+        int ret = 0;
+
         if (ecode)
             *ecode = error::NoError;
 
@@ -1797,25 +1849,31 @@ namespace nx_spl
             *ecode = error::ReadNotSupported;
             return 0;
         }
-
-        FILE * f = fopen(m_localfile.fullPath.c_str(), "rb");
-        if (f == NULL)
+        m_file = fopen(m_localfile.fullPath.c_str(), "rb");
+        if (m_file == NULL)
             goto bad_end;
 
         readSize = (uint32_t)(m_pos + size > m_localsize ? m_localsize - m_pos : size);
-
-        if (fseek(f, (int)m_pos, SEEK_SET) != 0)
+        if (fseek(m_file, (int)m_pos, SEEK_SET) != 0)
             goto bad_end;
-
-        fread(dst, 1, readSize, f);
+        fread(dst, 1, readSize, m_file);
         m_pos += readSize;
-        fclose(f);
+        ret = fclose(m_file);
+        if(ret < 0)
+        {
+            DEBUGLOG("File closed Failed:",m_localfile.fullPath);
+        }
+        m_file = NULL;
         return readSize;
 
     bad_end:
-        if (f != NULL)
-            fclose(f);
         ERRORLOG("Error while reading file:",m_localfile.fullPath);
+        ret = fclose(m_file);
+        if(ret < 0)
+        {
+            DEBUGLOG("File closed Failed:",m_localfile.fullPath);
+        }
+        m_file = NULL;
         *ecode = error::UnknownError;
         return 0;
     }
@@ -1848,17 +1906,8 @@ namespace nx_spl
         std::lock_guard<std::mutex> lock(m_mutex);
         if (ecode)
             *ecode = error::NoError;
-
-        long long filesize;
-        if ((filesize = aux::getFileSize(m_localfile.fullPath.c_str())) == -1)
-        {
-            if (ecode)
-                *ecode = error::UnknownError;
-            ERRORLOG("Unable to get file size:",m_localfile.fullPath);
-            return 0;
-        }
-        INFOLOG("local file size:",m_localfile.fullPath, filesize);
-        return static_cast<uint32_t>(filesize);
+        DEBUGLOG("local file size:",m_localfile.fullPath, m_localsize);
+        return static_cast<uint32_t>(m_localsize);
     }
 
     void *nx_spl::S3IODevice::queryInterface(const nxpl::NX_GUID &interfaceID)
@@ -1902,38 +1951,46 @@ namespace nx_spl
         DEBUGLOG("S3IODevice::flush");
         if(m_altered)
         {
-            try
+            if(m_impl.get() != nullptr)
             {
-                std::shared_ptr<Aws::IOStream> inputData =
-                Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
-                    m_localfile.fullPath.c_str(),
-                    std::ios_base::in | std::ios_base::binary);
-
-                if (!*inputData) {
-                    ERRORLOG("Unable to read local file:",m_localfile.fullPath);
-                    throw aux::InternalErrorException("Error unable to read local file ");
-                }
-
-                Aws::S3::Model::PutObjectRequest request;
-                request.SetBucket(m_bucket);
-                request.SetKey(m_uri);
-                request.SetBody(inputData);
-
-                Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
-
-                if (!outcome.IsSuccess()) 
+                try
                 {
-                    ERRORLOG("Unable to upload file:",m_uri,outcome.GetError().GetMessage().c_str());
-                    throw aux::InternalErrorException(outcome.GetError().GetMessage().c_str());
+                    std::shared_ptr<Aws::IOStream> inputData =
+                    Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
+                        m_localfile.fullPath.c_str(),
+                        std::ios_base::in | std::ios_base::binary);
+                    if (!*inputData) {
+                        ERRORLOG("Unable to read local file:",m_localfile.fullPath);
+                        throw aux::InternalErrorException("Error unable to read local file ");
+                    }
+                    Aws::S3::Model::PutObjectRequest request;
+                    request.SetBucket(m_bucket);
+                    request.SetKey(m_uri);
+                    request.SetBody(inputData);
+                    Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
+                    static_cast<Aws::FStream*>(inputData.get())->close();
+                    if (!outcome.IsSuccess()) 
+                    {
+                        ERRORLOG("Unable to upload file:",m_uri,outcome.GetError().GetMessage().c_str());
+                        throw aux::InternalErrorException(outcome.GetError().GetMessage().c_str());
+                    }
+                    else 
+                    {
+                        INFOLOG("Successfully uploaded file:",m_localfile.fullPath,m_uri,m_bucket);
+                    }
                 }
-                else 
+                catch(aux::InternalErrorException &e)
                 {
-                    INFOLOG("Successfully uploaded file:",m_localfile.fullPath,m_uri,m_bucket);
+                    ERRORLOG(e.what());
+                }
+                catch(...)
+                {
+                    ERRORLOG("Exception!!");
                 }
             }
-            catch(aux::InternalErrorException &e)
+            else
             {
-                ERRORLOG(e.what());
+                ERRORLOG("implPtrType is nullptr!")
             }
         }
     }
@@ -1941,8 +1998,24 @@ namespace nx_spl
     S3IODevice::~S3IODevice()
     {
         DEBUGLOG("S3IODevice::~S3IODevice");
+        if (m_file != NULL)
+        {
+            int ret = fclose(m_file);
+            if(ret != -1)
+            {
+                DEBUGLOG("File closed successfully:",m_localfile.fullPath);
+            }
+            else
+            {
+                ERRORLOG("Failed to close file:",m_localfile.fullPath,ret);
+            }
+            m_file = NULL;
+        }
         flush();
-        remove(m_localfile.fullPath.c_str());
+        if (remove(m_localfile.fullPath.c_str()) != 0) 
+        {
+            ERRORLOG("Failed to remove file:",m_localfile.fullPath.c_str(),",",GetLastError());
+        }
     }
 
     S3FileInfoIterator::S3FileInfoIterator(FileListType &&fileList, const std::string &baseDir):
@@ -2033,6 +2106,7 @@ namespace nx_spl
     nx_spl::S3FileInfoIterator::~S3FileInfoIterator()
     {
         DEBUGLOG("S3FileInfoIterator::~S3FileInfoIterator");
+
     }
 }
 

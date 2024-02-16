@@ -12,11 +12,12 @@
 #include <sstream>
 #include <filesystem>
 #include <iostream>
+#include <mutex>
 
 namespace fs = std::filesystem;
 
-#define DEBUGLOG(...) ""
-//#define DEBUGLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::DebugP, __FUNCTION__, __LINE__, __VA_ARGS__);
+// #define DEBUGLOG(...) ""
+#define DEBUGLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::DebugP, __FUNCTION__, __LINE__, __VA_ARGS__);
 #define INFOLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::InfoP, __FUNCTION__, __LINE__, __VA_ARGS__);
 #define ERRORLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::ErrorP, __FUNCTION__, __LINE__, __VA_ARGS__);
 
@@ -34,58 +35,69 @@ namespace nx_spl
                 };
 
             private:
-                static LogPriority verbosity;
-                static std::string logDirectory;
-                static std::string currentLogFile;
+                static LogPriority m_verbosity;
+                static std::string m_logDirectory;
+                static std::string m_currentLogFile;
+                static std::mutex  m_mutex;
+                static std::ofstream m_file;
 
             public:
                 static void SetVerbosity(LogPriority new_priority) 
                 {
-                    verbosity = new_priority;
+                    m_verbosity = new_priority;
                 }
 
                 template <typename... Args>
                 static void Log(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 
                 {
-                    if (priority >= verbosity) 
+                    std::lock_guard<std::mutex> lock(m_mutex);
+                    if (m_file.is_open())
                     {
-                        std::ofstream FILE(currentLogFile, std::ios_base::app);
-
-                        switch (priority) 
+                        if (priority >= m_verbosity) 
                         {
-                            case DebugP: FILE << "Debug:\t"; break;
-                            case InfoP: FILE << "Info:\t"; break;
-                            case WarnP: FILE << "Warn:\t"; break;
-                            case ErrorP: FILE << "Error:\t"; break;
-                            case CriticalP: FILE << "Critical:\t"; break;
-                            case FatalP: FILE << "Fatal:\t"; break;
+                            switch (priority) 
+                            {
+                                case DebugP: m_file << "Debug:\t"; break;
+                                case InfoP: m_file << "Info:\t"; break;
+                                case WarnP: m_file << "Warn:\t"; break;
+                                case ErrorP: m_file << "Error:\t"; break;
+                                case CriticalP: m_file << "Critical:\t"; break;
+                                case FatalP: m_file << "Fatal:\t"; break;
+                            }
+
+                            // Get current timestamp
+                            std::time_t rawTime;
+                            std::tm* timeInfo;
+                            char buffer[80];
+
+                            std::time(&rawTime);
+                            timeInfo = std::localtime(&rawTime);
+
+                            std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
+                            std::string timestamp(buffer);
+
+                            m_file << "[" << timestamp << "] ";
+                            
+                            m_file << lineNumber << " : " << functionName << "\t";
+                            logMultipleStrings(m_file, std::forward<Args>(args)...);
+                            m_file << "\n";
+                            m_file.close();
+                            updateLogFile();
                         }
-
-                        // Get current timestamp
-                        std::time_t rawTime;
-                        std::tm* timeInfo;
-                        char buffer[80];
-
-                        std::time(&rawTime);
-                        timeInfo = std::localtime(&rawTime);
-
-                        std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-                        std::string timestamp(buffer);
-
-                        FILE << "[" << timestamp << "] ";
-                        
-                        FILE << lineNumber << " : " << functionName << "\t";
-                        logMultipleStrings(FILE, std::forward<Args>(args)...);
-                        FILE << "\n";
-                        FILE.close();
-                        updateLogFile();
                     }
                 }
 
                 static void Initialize() 
                 {
-                    updateLogFile();
                     createLogDirectory();
+                    updateLogFile();
+                }
+
+                static void Dinitialize()
+                {
+                    if (m_file.is_open())
+                        m_file.close();
+                    m_currentLogFile.clear();
                 }
 
             private:
@@ -101,17 +113,20 @@ namespace nx_spl
                     std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", timeInfo);
                     std::string currentDate(buffer);
 
-                    if (currentLogFile.empty() || currentDate != currentLogFile) 
+                    if (m_currentLogFile.empty() || currentDate != m_currentLogFile) 
                     {
-                        currentLogFile = logDirectory + "/log_" + currentDate + ".txt";
+                        if (m_file.is_open())
+                            m_file.close();
+                        m_currentLogFile = m_logDirectory + "/log_" + currentDate + ".txt";
+                        m_file.open(m_currentLogFile,std::ios_base::app);
                     }
                 }
 
                 static void createLogDirectory() 
                 {
-                    if (!fs::exists(logDirectory)) 
+                    if (!fs::exists(m_logDirectory)) 
                     {
-                        fs::create_directory(logDirectory);
+                        fs::create_directory(m_logDirectory);
                     }
                 }
 
@@ -131,8 +146,10 @@ namespace nx_spl
     }
 }
 
-nx_spl::aux::DailyLogger::LogPriority nx_spl::aux::DailyLogger::verbosity = nx_spl::aux::DailyLogger::LogPriority::DebugP;
-std::string nx_spl::aux::DailyLogger::logDirectory = "./logs";  // Default log directory
-std::string nx_spl::aux::DailyLogger::currentLogFile;
+nx_spl::aux::DailyLogger::LogPriority nx_spl::aux::DailyLogger::m_verbosity = nx_spl::aux::DailyLogger::LogPriority::DebugP;
+std::string nx_spl::aux::DailyLogger::m_logDirectory = "./logs";  // Default log directory
+std::string nx_spl::aux::DailyLogger::m_currentLogFile;
+std::mutex  nx_spl::aux::DailyLogger::m_mutex;
+std::ofstream nx_spl::aux::DailyLogger::m_file;
 
 #endif //DAILY_LOGER_H
