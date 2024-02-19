@@ -346,7 +346,7 @@ namespace nx_spl
             HANDLE hFile = CreateFileA(
                 fname,
                 GENERIC_READ,
-                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                FILE_SHARE_READ,
                 NULL,
                 OPEN_EXISTING,
                 FILE_ATTRIBUTE_NORMAL,
@@ -358,6 +358,7 @@ namespace nx_spl
             LARGE_INTEGER s;
             if (!GetFileSizeEx(hFile, &s))
             {
+                ERRORLOG("Failed to get file size",fname);
                 CloseHandle(hFile);
                 return -1;
             }
@@ -1725,6 +1726,11 @@ namespace nx_spl
                         }
                     }
                 }
+                if ((m_localsize = aux::getFileSize(m_localfile.fullPath.c_str())) == -1)
+                {
+                    ERRORLOG("Invalid local file size:",m_localfile.fullPath)
+                    throw aux::InternalErrorException("local file calculate size failed");
+                }
             }
             else if(mode & io::ReadOnly)
             {
@@ -1765,17 +1771,21 @@ namespace nx_spl
                         throw aux::InternalErrorException("s3 get failed");
                     }
                 }
+                if ((m_localsize = aux::getFileSize(m_localfile.fullPath.c_str())) <= 0)
+                {
+                    ERRORLOG("Invalid local file size:",m_localfile.fullPath)
+                    throw aux::InternalErrorException("local file calculate size failed");
+                }
             }
-            
-            if ((m_localsize = aux::getFileSize(m_localfile.fullPath.c_str())) == -1)
-            {
-                ERRORLOG("Invalid local file size:",m_localfile.fullPath)
-                throw aux::InternalErrorException("local file calculate size failed");
-            }
+            DEBUGLOG("File size",m_localfile.fullPath,m_localsize);
         }
         catch(...)
         {
             ERRORLOG("Error while IO operation",uri,bucket,mode);
+            if (remove(m_localfile.fullPath.c_str()) != 0) 
+            {
+                ERRORLOG("Failed to remove file:",m_localfile.fullPath.c_str(),",",GetLastError());
+            }
             throw ;
         }
         DEBUGLOG("--------------------------done");
@@ -1787,31 +1797,25 @@ namespace nx_spl
         std::lock_guard<std::mutex> lock(m_mutex);
         if (ecode)
             *ecode = error::NoError;
-        int ret = 0;
 
         if (!(m_mode & io::WriteOnly))
         {
             *ecode = error::WriteNotSupported;
             return 0;
         }
-        m_file = fopen(m_localfile.fullPath.c_str(), "r+b");
-        if (m_file == NULL)
+        FILE * f = fopen(m_localfile.fullPath.c_str(), "r+b");
+        if (f == NULL)
             goto bad_end;
 
-        if (fseek(m_file, (int)m_pos, SEEK_SET) != 0)
+        if (fseek(f, (int)m_pos, SEEK_SET) != 0)
             goto bad_end;
 
-        fwrite(src, 1, size, m_file);
+        fwrite(src, 1, size, f);
         m_pos += size;
         m_localsize += size;
         m_altered = true;
+        fclose(f);
         m_fileWriteCount++;
-        ret = fclose(m_file);
-        if(ret < 0)
-        {
-            DEBUGLOG("File closed Failed:",m_localfile.fullPath);
-        }
-        m_file = NULL;
         if(m_fileWriteCount > 10)
         {
             flush();
@@ -1820,16 +1824,9 @@ namespace nx_spl
         return size;
 
     bad_end:
+        if (f != NULL)
+            fclose(f);
         ERRORLOG("Error while writing file:",m_localfile.fullPath);
-        if (m_file == NULL)
-        {
-            ret = fclose(m_file);
-            if(ret != -1)
-            {
-                DEBUGLOG("File closed successfully:",m_localfile.fullPath);
-            }
-            m_file = NULL;
-        }
         *ecode = error::UnknownError;
         return 0;
     }
@@ -1839,8 +1836,6 @@ namespace nx_spl
         INFOLOG("S3IODevice::read",m_localfile.fullPath);
         std::lock_guard<std::mutex> lock(m_mutex);
         uint32_t readSize = 0;
-        int ret = 0;
-
         if (ecode)
             *ecode = error::NoError;
 
@@ -1849,31 +1844,25 @@ namespace nx_spl
             *ecode = error::ReadNotSupported;
             return 0;
         }
-        m_file = fopen(m_localfile.fullPath.c_str(), "rb");
-        if (m_file == NULL)
+
+        FILE * f = fopen(m_localfile.fullPath.c_str(), "rb");
+        if (f == NULL)
             goto bad_end;
 
         readSize = (uint32_t)(m_pos + size > m_localsize ? m_localsize - m_pos : size);
-        if (fseek(m_file, (int)m_pos, SEEK_SET) != 0)
+
+        if (fseek(f, (int)m_pos, SEEK_SET) != 0)
             goto bad_end;
-        fread(dst, 1, readSize, m_file);
+
+        fread(dst, 1, readSize, f);
         m_pos += readSize;
-        ret = fclose(m_file);
-        if(ret < 0)
-        {
-            DEBUGLOG("File closed Failed:",m_localfile.fullPath);
-        }
-        m_file = NULL;
+        fclose(f);
         return readSize;
 
     bad_end:
+        if (f != NULL)
+            fclose(f);
         ERRORLOG("Error while reading file:",m_localfile.fullPath);
-        ret = fclose(m_file);
-        if(ret < 0)
-        {
-            DEBUGLOG("File closed Failed:",m_localfile.fullPath);
-        }
-        m_file = NULL;
         *ecode = error::UnknownError;
         return 0;
     }
@@ -1906,7 +1895,7 @@ namespace nx_spl
         std::lock_guard<std::mutex> lock(m_mutex);
         if (ecode)
             *ecode = error::NoError;
-        DEBUGLOG("local file size:",m_localfile.fullPath, m_localsize);
+        INFOLOG("local file size:",m_localfile.fullPath, m_localsize);
         return static_cast<uint32_t>(m_localsize);
     }
 
