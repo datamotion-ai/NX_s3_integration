@@ -24,43 +24,40 @@ endif()
 
 find_package(AWSSDK REQUIRED COMPONENTS ${SERVICE_COMPONENTS})
 find_package(CURL REQUIRED)
+if(NOT WIN32)
+   find_package(ZLIB REQUIRED)
+endif()
 
 Message(STATUS "All linked libs: ${AWSSDK_LINK_LIBRARIES} ")
 Message(STATUS "All platform libs: ${AWSSDK_PLATFORM_DEPS} ")
 Message(STATUS "current cmake directory ${CMAKE_CURRENT_SOURCE_DIR}")
 
- #add_definitions(-DAWS_SDK_PLATFORM_WINDOWS)
- #add_definitions(-DUSE_WINDOWS_DLL_SEMANTICS)
- #add_definitions(-DENABLE_WINDOWS_CLIENT)
- #add_definitions(-DENABLE_BCRYPT_ENCRYPTION)
- #add_definitions(-DUSE_IMPORT_EXPORT)
- #add_definitions(-DAWS_S3_EXPORTS)
- #add_definitions(-DAWS_LAMBDA_EXPORTS)
- #add_definitions(-DAWS_CORE_EXPORTS)
- #add_definitions(-DNDEBUG)
- #add_definitions(-D_CONSOLE)
- #add_definitions(-DCURL_STATICLIB)
+file(GLOB_RECURSE source_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*)
+add_library(s3_storage_plugin SHARED ${source_files} )
 
- file(GLOB_RECURSE source_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*)
- add_library(s3_storage_plugin SHARED ${source_files} )
-
- target_include_directories(s3_storage_plugin PRIVATE
+target_include_directories(s3_storage_plugin PRIVATE
     ../../../src #< SDK headers.
     ${AWSSDK_INCLUDE_DIRS}
     ../../../lib/jsoncpp/include
-    E:/vcpkg-master/installed/x64-windows-static/include
- )
+    E:/vcpkg-master/installed/x64-windows-static/include)
+    
+if(WIN32)
+    set(API_IMPORT_MACRO "__declspec(dllimport)")
+    set(API_EXPORT_MACRO "__declspec(dllexport)")
+else()
+    set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+    set(API_IMPORT_MACRO "")
+    set(API_EXPORT_MACRO "__attribute__((visibility(\"default\")))")
+endif()
 
- set(API_IMPORT_MACRO "__declspec(dllimport)")
- set(API_EXPORT_MACRO "__declspec(dllexport)")
- target_compile_definitions(s3_storage_plugin
+target_compile_definitions(s3_storage_plugin
     PRIVATE NX_PLUGIN_API=${API_EXPORT_MACRO}
     INTERFACE NX_PLUGIN_API=${API_IMPORT_MACRO}
- )
+)
 
- set(BUILD_SHARED_LIBS ON CACHE STRING "Link to shared libraries by default.")
+set(BUILD_SHARED_LIBS ON CACHE STRING "Link to shared libraries by default.")
 
- if(WINDOWS_BUILD)
+if(WINDOWS_BUILD)
      # Copy relevant AWS SDK for C++ libraries into the current binary directory for running and debugging.
 
      set(BIN_SUB_DIR "/debug") # If you are building from the command line, you may need to uncomment this 
@@ -70,22 +67,32 @@ Message(STATUS "current cmake directory ${CMAKE_CURRENT_SOURCE_DIR}")
      string(APPEND CMAKE_CXX_FLAGS " /MP")
      target_compile_options(s3_storage_plugin BEFORE PRIVATE /Z7)
      target_compile_definitions(s3_storage_plugin PRIVATE _CRT_SECURE_NO_WARNINGS)
- endif()
+else()
+     set_target_properties(s3_storage_plugin PROPERTIES
+    			   CXX_STANDARD_REQUIRED YES
+    			   CXX_EXTENSIONS NO
+    			   LINK_FLAGS "-Wl,-z,defs")
+endif()
 
- if(WINDOWS_BUILD)
+if(WINDOWS_BUILD)
     list(FIND AWSSDK_CLIENT_LIBS "curl" CONTAINS_CURL)
     if (CONTAINS_CURL EQUAL 0)
         set(CURL_INCLUDE "E:/vcpkg-master/packages/curl_x64-windows-static/include") # Update this with correct curl install location.
         set(CURL_LIB "E:/vcpkg-master/packages/curl_x64-windows-static/lib") # Update this with correct  curl install location.
     endif()
- endif()
+endif()
 
- target_link_libraries(s3_storage_plugin PRIVATE
+if(WINDOWS_BUILD)
+    target_link_libraries(s3_storage_plugin PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/jsoncpp/build/lib/Release/jsoncpp_static.lib
         ${AWSSDK_LINK_LIBRARIES}
         #${AWSSDK_PLATFORM_DEPS}
         CURL::libcurl)
-
+else()
+    target_link_libraries(s3_storage_plugin PRIVATE 
+   	${AWSSDK_LINK_LIBRARIES} 
+   	${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/jsoncpp/build/lib/libjsoncpp.a)
+endif()
 
 
 

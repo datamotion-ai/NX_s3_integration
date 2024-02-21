@@ -593,11 +593,13 @@ namespace nx_spl
                 clientConfig.scheme = Aws::Http::Scheme::HTTPS;
                 clientConfig.endpointOverride = Aws::String(url);
 
+                // Aws::S3::S3EndpointProvider endpoint;
+
                 Aws::Auth::AWSCredentials credentials;
                 credentials.SetAWSAccessKeyId(uaccessKey);
                 credentials.SetAWSSecretKey(usecreatKey);
                 
-                impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
+                impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
                 if(impl.get() != nullptr)
                 {
                     auto outcome = impl->ListBuckets();
@@ -616,7 +618,6 @@ namespace nx_spl
                         if((bucketFound == false) && (createBucket(bucket,impl) == false))
                         {
                             ERRORLOG("Failed to create bucket S3",bucket);
-                            return false;
                         }
                         else
                         {
@@ -641,34 +642,6 @@ namespace nx_spl
                 throw aux::NetworkException(e.what());
             }
         }
-
-        //std::string executeCommand(const std::string& command) 
-        //{
-        //    // Open a pipe to the command and capture its output
-        //    std::string result;
-        //    FILE* pipe = popen(command.c_str(), "r");
-        //    
-        //    if (!pipe) {
-        //        std::cerr << "popen failed!" << std::endl;
-        //        return "";
-        //    }
-
-        //    char buffer[128];
-        //    while (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
-        //        result += buffer;
-        //    }
-
-        //    int status = pclose(pipe);
-
-        //    if (status == -1) {
-        //        std::cerr << "pclose failed!" << std::endl;
-        //    } else {
-        //        std::cout << "Command exited with status " << status << std::endl;
-        //    }
-
-        //    return result;
-        //}
-        
     }
 
     // S3StorageFactory
@@ -1175,7 +1148,6 @@ namespace nx_spl
     {
         DEBUGLOG("S3Storage::isAvailable");
         std::lock_guard<std::mutex> lock(m_mutex);
-        m_available = false;
         if(S3StorageFactory::isLicenseAvailable() == false)
         {
             ERRORLOG("Invalid License!!");
@@ -1183,23 +1155,6 @@ namespace nx_spl
         }
         if(m_impl != nullptr)
         {
-            auto outcome = m_impl->ListBuckets();
-            if (outcome.IsSuccess()) 
-            {
-                auto objects = outcome.GetResult().GetBuckets();
-                for (const auto& object : objects) 
-                {
-                    if(object.GetName() == m_bucket)
-                    {
-                        m_available = true;
-                        break;
-                    }
-                }
-            }
-            else 
-            {
-                INFOLOG("No connection!!");
-            }
             if(m_available == false)
             {
                 INFOLOG("Connection lost");
@@ -1220,7 +1175,7 @@ namespace nx_spl
         INFOLOG("S3Storage::open",uri,flags);
         *ecode = error::NoError;
         IODevice *ret = nullptr;
-        if (!isAvailable())
+        if (isAvailable() == 0)
         {
             *ecode = error::StorageUnavailable;
             INFOLOG("S3 not connected");
@@ -1519,20 +1474,31 @@ namespace nx_spl
 
     int STORAGE_METHOD_CALL S3Storage::fileExists(const char *url, int *ecode) const
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::fileExists",url);
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
-            return 0;
 
-        if (!aux::remoteUriExists(url,m_bucket, m_impl))
+        if (!isAvailable())
         {
-            INFOLOG("file not found:",url,m_bucket);
+            *ecode = error::StorageUnavailable;
+            INFOLOG("S3 not connected");
             return 0;
         }
         else
         {
-            INFOLOG("file found:",url,m_bucket);
-            return 1;
+            std::lock_guard<std::mutex> lock(m_mutex);
+        
+            if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+                return 0;
+
+            if (!aux::remoteUriExists(url,m_bucket, m_impl))
+            {
+                INFOLOG("file not found:",url,m_bucket);
+                return 0;
+            }
+            else
+            {
+                INFOLOG("file found:",url,m_bucket);
+                return 1;
+            }
         }
     }
 
@@ -1743,7 +1709,7 @@ namespace nx_spl
                     throw aux::BadUrlException("couldn't create local temporary file");
                 }
                 fclose(f);
-
+                INFOLOG("Downloading file!!",m_localfile.fullPath);
                 Aws::S3::Model::GetObjectRequest request;
                 request.SetBucket(m_bucket);
                 request.SetKey(m_uri);
@@ -1784,7 +1750,7 @@ namespace nx_spl
             ERRORLOG("Error while IO operation",uri,bucket,mode);
             if (remove(m_localfile.fullPath.c_str()) != 0) 
             {
-                ERRORLOG("Failed to remove file:",m_localfile.fullPath.c_str(),",",GetLastError());
+                ERRORLOG("Failed to remove file:",m_localfile.fullPath.c_str());
             }
             throw ;
         }
@@ -1952,6 +1918,7 @@ namespace nx_spl
                         ERRORLOG("Unable to read local file:",m_localfile.fullPath);
                         throw aux::InternalErrorException("Error unable to read local file ");
                     }
+                    INFOLOG("Uploading file!!",m_localfile.fullPath);
                     Aws::S3::Model::PutObjectRequest request;
                     request.SetBucket(m_bucket);
                     request.SetKey(m_uri);
@@ -2003,7 +1970,7 @@ namespace nx_spl
         flush();
         if (remove(m_localfile.fullPath.c_str()) != 0) 
         {
-            ERRORLOG("Failed to remove file:",m_localfile.fullPath.c_str(),",",GetLastError());
+            ERRORLOG("Failed to remove file:",m_localfile.fullPath.c_str());
         }
     }
 
