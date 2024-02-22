@@ -516,7 +516,6 @@ namespace nx_spl
 
         bool createDir( const std::string& dirPath,const std::string& bucket, const implPtrType& impl) 
         {
-            // std::cout << __LINE__ << ":" << __func__ << " : " << "dirPath:" << dirPath << std::endl;
             bool ret = false;
             std::string dir = dirPath;
             dir.append("/");
@@ -593,13 +592,15 @@ namespace nx_spl
                 clientConfig.scheme = Aws::Http::Scheme::HTTPS;
                 clientConfig.endpointOverride = Aws::String(url);
 
-                // Aws::S3::S3EndpointProvider endpoint;
-
                 Aws::Auth::AWSCredentials credentials;
                 credentials.SetAWSAccessKeyId(uaccessKey);
                 credentials.SetAWSSecretKey(usecreatKey);
                 
+                #if defined (_WIN32)
+                impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
+                #else
                 impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
+                #endif
                 if(impl.get() != nullptr)
                 {
                     auto outcome = impl->ListBuckets();
@@ -649,19 +650,19 @@ namespace nx_spl
     std::mutex nx_spl::S3StorageFactory::m_mutex;
     bool  g_licenseAvailable = false;
 
-    S3StorageFactory::S3StorageFactory()
+    nx_spl::S3StorageFactory::S3StorageFactory()
     {
-        options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
         INFOLOG("S3StorageFactory::S3StorageFactory");
-        Aws::InitAPI(options);
+        m_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Debug;
+        Aws::InitAPI(m_options);
         std::srand((unsigned int) time(0));
         m_timer.start(this, &S3StorageFactory::verifyLicenses,ONE_MINUTE);
     }
 
-    S3StorageFactory::~S3StorageFactory()
+    nx_spl::S3StorageFactory::~S3StorageFactory()
     {
         INFOLOG("S3StorageFactory::~S3StorageFactory");
-        Aws::ShutdownAPI(options);
+        Aws::ShutdownAPI(m_options);
         nx_spl::aux::DailyLogger::Dinitialize();
     }
 
@@ -716,13 +717,8 @@ namespace nx_spl
                 std::string url = "https://" + nxHostUrl + ":7001/rest/v2/licenses";
                 std::string acceptHeader = "accept: application/json";
                 std::string runtimeGuidHeader = "x-runtime-guid: " + token;
-
-                // std::string data = nxUserName + ":" + nxPassword;
-                // INFOLOG("data",data);
-                // curl_easy_setopt(curl, CURLOPT_USERPWD, data.c_str());
                 
                 curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-
                 curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
 
                 struct curl_slist* headers = NULL;
@@ -825,7 +821,7 @@ namespace nx_spl
         }
     }
 
-    bool S3StorageFactory::createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string &token) const
+    bool nx_spl::S3StorageFactory::createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string &token) const
     {
         INFOLOG("S3StorageFactory::createSession",host,usr,pswd);
         bool ret = false;
@@ -883,7 +879,7 @@ namespace nx_spl
         return ret;
     }
 
-    bool S3StorageFactory::isSessionExpired(const std::string &host, std::string &token) const
+    bool nx_spl::S3StorageFactory::isSessionExpired(const std::string &host, std::string &token) const
     {
         INFOLOG("S3StorageFactory::isSessionExpired",host,token);
         bool ret = true;
@@ -939,13 +935,13 @@ namespace nx_spl
         return ret;
     }
 
-    const char** STORAGE_METHOD_CALL S3StorageFactory::findAvailable() const
+    const char** STORAGE_METHOD_CALL nx_spl::S3StorageFactory::findAvailable() const
     {
         assert(false);
         return nullptr;
     }
 
-    Storage *STORAGE_METHOD_CALL S3StorageFactory::createStorage(const char *url, int *ecode)
+    Storage *STORAGE_METHOD_CALL nx_spl::S3StorageFactory::createStorage(const char *url, int *ecode)
     {
         INFOLOG("S3StorageFactory::createStorage",url);
         Storage* ret = nullptr;
@@ -979,7 +975,7 @@ namespace nx_spl
     }
 
 
-    const char *STORAGE_METHOD_CALL S3StorageFactory::storageType() const
+    const char *STORAGE_METHOD_CALL nx_spl::S3StorageFactory::storageType() const
     {
         DEBUGLOG("S3StorageFactory::storageType");
         static bool pluginIntegrated = false;
@@ -1015,7 +1011,7 @@ namespace nx_spl
 
     #define STR_ERROR(ecode) case ecode: return #ecode;
 
-    const char *S3StorageFactory::lastErrorMessage(int ecode) const
+    const char *nx_spl::S3StorageFactory::lastErrorMessage(int ecode) const
     {
         switch(ecode)
         {
@@ -1034,7 +1030,7 @@ namespace nx_spl
     #undef PRINT_ERROR
     #undef ERROR_LIST
 
-    void *S3StorageFactory::queryInterface(const nxpl::NX_GUID &interfaceID)
+    void *nx_spl::S3StorageFactory::queryInterface(const nxpl::NX_GUID &interfaceID)
     {
         DEBUGLOG("S3StorageFactory::queryInterface");
         if (std::memcmp(&interfaceID,
@@ -1057,18 +1053,18 @@ namespace nx_spl
         }
         return nullptr;
     }
-    int S3StorageFactory::addRef() const
+    int nx_spl::S3StorageFactory::addRef() const
     {
         DEBUGLOG("S3StorageFactory::addRef");
         return p_addRef();
     }
-    int S3StorageFactory::releaseRef() const
+    int nx_spl::S3StorageFactory::releaseRef() const
     {
         DEBUGLOG("S3StorageFactory::releaseRef");
         return p_releaseRef();
     }
 
-    S3Storage::S3Storage(const std::string &url) : 
+    nx_spl::S3Storage::S3Storage(const std::string &url) : 
     m_available(false),
     m_freebucketSize(S3_DEFAULT_TOTAL_SPACE),
     m_totalSpace(S3_DEFAULT_TOTAL_SPACE)
@@ -1144,7 +1140,7 @@ namespace nx_spl
             throw;
         }
     }
-    int STORAGE_METHOD_CALL S3Storage::isAvailable() const
+    int STORAGE_METHOD_CALL nx_spl::S3Storage::isAvailable() const
     {
         DEBUGLOG("S3Storage::isAvailable");
         std::lock_guard<std::mutex> lock(m_mutex);
@@ -1170,7 +1166,7 @@ namespace nx_spl
         else
             return 0;
     }
-    IODevice *STORAGE_METHOD_CALL S3Storage::open(const char *uri, int flags, int *ecode) const
+    IODevice *STORAGE_METHOD_CALL nx_spl::S3Storage::open(const char *uri, int flags, int *ecode) const
     {
         INFOLOG("S3Storage::open",uri,flags);
         *ecode = error::NoError;
@@ -1209,7 +1205,7 @@ namespace nx_spl
         }
     }
     
-    uint64_t STORAGE_METHOD_CALL S3Storage::getFreeSpace(int *ecode) const
+    uint64_t STORAGE_METHOD_CALL nx_spl::S3Storage::getFreeSpace(int *ecode) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::getFreeSpace");
@@ -1242,19 +1238,21 @@ namespace nx_spl
         return m_freebucketSize;  
     }
 
-    uint64_t STORAGE_METHOD_CALL S3Storage::getTotalSpace(int *ecode) const
+    uint64_t STORAGE_METHOD_CALL nx_spl::S3Storage::getTotalSpace(int *ecode) const
     {
         DEBUGLOG("S3Storage::getTotalSpace");
         if(S3StorageFactory::isLicenseAvailable() == false)
         {
             // ERRORLOG("Invalid License!!");
+            if (ecode)
+                *ecode = error::NotEnoughSpace;
             return 0;
         }
         if (ecode)
-        *ecode = error::NoError;
+            *ecode = error::NoError;
         return m_totalSpace;
     }
-    int STORAGE_METHOD_CALL S3Storage::getCapabilities() const
+    int STORAGE_METHOD_CALL nx_spl::S3Storage::getCapabilities() const
     {
         DEBUGLOG("S3Storage::getCapabilities");
         int ret = 0;
@@ -1265,8 +1263,9 @@ namespace nx_spl
         return ret;
     }
 
-    void STORAGE_METHOD_CALL S3Storage::removeFile(const char *url, int *ecode)
+    void STORAGE_METHOD_CALL nx_spl::S3Storage::removeFile(const char *url, int *ecode)
     {
+        DEBUGLOG("S3Storage::removeFile",url,m_bucket);
         std::lock_guard<std::mutex> lock(m_mutex);
         if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
             return;
@@ -1302,10 +1301,10 @@ namespace nx_spl
         return ;
     }
 
-    void STORAGE_METHOD_CALL S3Storage::removeDir(const char *url, int *ecode)
+    void STORAGE_METHOD_CALL nx_spl::S3Storage::removeDir(const char *url, int *ecode)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        DEBUGLOG("S3Storage::removeDir",url);
+        DEBUGLOG("S3Storage::removeDir",url,m_bucket);
         if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
             return;
         
@@ -1336,7 +1335,7 @@ namespace nx_spl
         return ;
     }
 
-    void STORAGE_METHOD_CALL S3Storage::renameFile(const char *oldUrl, const char *newUrl, int *ecode)
+    void STORAGE_METHOD_CALL nx_spl::S3Storage::renameFile(const char *oldUrl, const char *newUrl, int *ecode)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::renameFile",oldUrl,newUrl);
@@ -1381,7 +1380,7 @@ namespace nx_spl
         return ;
     }
 
-    FileInfoIterator *STORAGE_METHOD_CALL S3Storage::getFileIterator(const char *dirUrl, int *ecode) const
+    FileInfoIterator *STORAGE_METHOD_CALL nx_spl::S3Storage::getFileIterator(const char *dirUrl, int *ecode) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::getFileIterator",dirUrl);
@@ -1430,6 +1429,7 @@ namespace nx_spl
                 line.append("0");
                 DEBUGLOG(line);
                 urls.push_back(line);
+                line.clear();
             }
             
             auto fileObjects = outcome.GetResult().GetContents();
@@ -1456,6 +1456,7 @@ namespace nx_spl
                 }
                 DEBUGLOG(line);
                 urls.push_back(line);
+                line.clear();
             }
             if(!urls.empty())
             {
@@ -1472,9 +1473,12 @@ namespace nx_spl
         return nullptr;
     }
 
-    int STORAGE_METHOD_CALL S3Storage::fileExists(const char *url, int *ecode) const
+    int STORAGE_METHOD_CALL nx_spl::S3Storage::fileExists(const char *url, int *ecode) const
     {
         DEBUGLOG("S3Storage::fileExists",url);
+
+        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+            return 0;
 
         if (!isAvailable())
         {
@@ -1485,9 +1489,6 @@ namespace nx_spl
         else
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-        
-            if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
-                return 0;
 
             if (!aux::remoteUriExists(url,m_bucket, m_impl))
             {
@@ -1502,26 +1503,52 @@ namespace nx_spl
         }
     }
 
-    int STORAGE_METHOD_CALL S3Storage::dirExists(const char *url, int *ecode) const
+    int STORAGE_METHOD_CALL nx_spl::S3Storage::dirExists(const char *url, int *ecode) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::dirExists",url);
         if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
             return 0;
-        
-        if(aux::createDir(url,m_bucket,m_impl))
+
+        if(m_impl.get() != nullptr)
         {
-            INFOLOG("Directory found:",url,m_bucket);
-            return 1;
+            std::string uri = url;
+            std::string dir;
+            if(uri[0] == '/')
+            {
+                dir.assign(uri.begin()+1, uri.end());
+            }
+            else
+            {
+                dir.assign(uri.begin(), uri.end());
+            }
+            dir.append("/");
+
+            Aws::S3::Model::ListObjectsV2Request request;
+            request.SetBucket(m_bucket);
+            request.WithPrefix(dir);
+            request.WithDelimiter("/");
+            
+            auto outcome = m_impl->ListObjectsV2(request);
+            if (outcome.IsSuccess()) 
+            {
+                INFOLOG("Directory found:",dir,m_bucket);
+                return 1;
+            }
+            else
+            {
+                ERRORLOG("Failed to find directory:",dir,m_bucket);
+                return 0;
+            }
         }
         else
         {
-            ERRORLOG("Failed to find directory:",url,m_bucket);
+            ERRORLOG("implPtrType is null ptr!!");
             return 0;
         }
     }
 
-    uint64_t STORAGE_METHOD_CALL S3Storage::fileSize(const char *url, int *ecode) const
+    uint64_t STORAGE_METHOD_CALL nx_spl::S3Storage::fileSize(const char *url, int *ecode) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::fileSize");
@@ -1535,7 +1562,7 @@ namespace nx_spl
         return size;
     }
 
-    void *S3Storage::queryInterface(const nxpl::NX_GUID &interfaceID)
+    void *nx_spl::S3Storage::queryInterface(const nxpl::NX_GUID &interfaceID)
     {
         DEBUGLOG("S3Storage::queryInterface");
         if (std::memcmp(&interfaceID,
@@ -1558,17 +1585,17 @@ namespace nx_spl
         }
         return nullptr;
     }
-    int S3Storage::addRef() const
+    int nx_spl::S3Storage::addRef() const
     {
         DEBUGLOG("S3Storage::addRef");
         return p_addRef();
     }
-    int S3Storage::releaseRef() const
+    int nx_spl::S3Storage::releaseRef() const
     {
         DEBUGLOG("S3Storage::releaseRef");
         return p_releaseRef();
     }
-    S3Storage::~S3Storage()
+    nx_spl::S3Storage::~S3Storage()
     {
         DEBUGLOG("S3Storage::~S3Storage");
     }
@@ -1583,17 +1610,23 @@ namespace nx_spl
         m_pos(0),
         m_altered(false),
         m_localsize(0),
-        m_impl(impl),
-        m_file(NULL)
+        m_impl(impl)
     {
-        
-        // std::lock_guard<std::mutex> lock(m_mutex);
         try
         {
             std::string remoteDir, remoteFile;
             aux::dirFromUri(uri, &remoteDir, &remoteFile);
-            m_localfile = aux::localUniqueFilePath("--" + remoteFile);
             m_uri = remoteDir + "/" + remoteFile;
+
+            if(mode & io::WriteOnly)
+            {
+                m_localfile = aux::localUniqueFilePath("--write" + remoteFile);
+            }
+            else if(mode & io::ReadOnly)
+            {
+                m_localfile = aux::localUniqueFilePath("--read" + remoteFile);
+            }
+
             INFOLOG("S3IODevice::S3IODevice",uri,m_localfile.fullPath,mode);
 
             bool fileExists = false;
@@ -1633,31 +1666,6 @@ namespace nx_spl
                         throw aux::InternalErrorException("couldn't create local temporary file");
                     }
                     fclose(f);
-
-                    std::shared_ptr<Aws::IOStream> inputData =
-                    Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
-                        m_localfile.fullPath.c_str(),
-                        std::ios_base::in | std::ios_base::binary);
-
-                    if (!*inputData) 
-                    {
-                        ERRORLOG("Unable to read file",m_localfile.fullPath);
-                        throw aux::InternalErrorException("Error unable to read file ");
-                    }
-
-                    Aws::S3::Model::PutObjectRequest request;
-                    request.SetBucket(m_bucket);
-                    request.SetKey(m_uri);
-                    request.SetBody(inputData);
-
-                    Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
-                    static_cast<Aws::FStream*>(inputData.get())->close();
-
-                    if (!outcome.IsSuccess()) 
-                    {
-                        ERRORLOG("Failed to upload file:",uri,m_bucket);
-                        throw aux::InternalErrorException(outcome.GetError().GetMessage().c_str());
-                    }
                 }
                 else
                 {
@@ -1700,7 +1708,6 @@ namespace nx_spl
             }
             else if(mode & io::ReadOnly)
             {
-                DEBUGLOG("--------------------------1");
                 remove(m_localfile.fullPath.c_str());
                 FILE *f = fopen(m_localfile.fullPath.c_str(), "wb");
                 if (f == NULL)
@@ -1739,7 +1746,7 @@ namespace nx_spl
                 }
                 if ((m_localsize = aux::getFileSize(m_localfile.fullPath.c_str())) <= 0)
                 {
-                    ERRORLOG("Invalid local file size:",m_localfile.fullPath)
+                    ERRORLOG("Invalid local file size:",m_localfile.fullPath,m_localsize);
                     throw aux::InternalErrorException("local file calculate size failed");
                 }
             }
@@ -1793,13 +1800,13 @@ namespace nx_spl
         if (f != NULL)
             fclose(f);
         ERRORLOG("Error while writing file:",m_localfile.fullPath);
-        *ecode = error::UnknownError;
+        *ecode = error::WriteNotSupported;
         return 0;
     }
 
     uint32_t STORAGE_METHOD_CALL nx_spl::S3IODevice::read(void *dst, const uint32_t size, int *ecode) const
     {
-        INFOLOG("S3IODevice::read",m_localfile.fullPath);
+        DEBUGLOG("S3IODevice::read",m_localfile.fullPath);
         std::lock_guard<std::mutex> lock(m_mutex);
         uint32_t readSize = 0;
         if (ecode)
@@ -1829,7 +1836,7 @@ namespace nx_spl
         if (f != NULL)
             fclose(f);
         ERRORLOG("Error while reading file:",m_localfile.fullPath);
-        *ecode = error::UnknownError;
+        *ecode = error::ReadNotSupported;
         return 0;
     }
 
@@ -1861,7 +1868,7 @@ namespace nx_spl
         std::lock_guard<std::mutex> lock(m_mutex);
         if (ecode)
             *ecode = error::NoError;
-        INFOLOG("local file size:",m_localfile.fullPath, m_localsize);
+        DEBUGLOG("local file size:",m_localfile.fullPath, m_localsize);
         return static_cast<uint32_t>(m_localsize);
     }
 
@@ -1954,19 +1961,6 @@ namespace nx_spl
     S3IODevice::~S3IODevice()
     {
         DEBUGLOG("S3IODevice::~S3IODevice");
-        if (m_file != NULL)
-        {
-            int ret = fclose(m_file);
-            if(ret != -1)
-            {
-                DEBUGLOG("File closed successfully:",m_localfile.fullPath);
-            }
-            else
-            {
-                ERRORLOG("Failed to close file:",m_localfile.fullPath,ret);
-            }
-            m_file = NULL;
-        }
         flush();
         if (remove(m_localfile.fullPath.c_str()) != 0) 
         {
@@ -2011,6 +2005,7 @@ namespace nx_spl
                     m_fileInfo.type = isDir;
                 }
                 m_fileInfo.size = std::stoi(substrings.at(2));
+                DEBUGLOG("----------------->",m_fileInfo.url);
                 substrings.clear();
                 return &m_fileInfo;
             } 
