@@ -1813,7 +1813,7 @@ namespace nx_spl
         m_altered = true;
         fclose(f);
         m_fileWriteCount++;
-        if(m_fileWriteCount > MAX_FILE_WRITE_COUNT)
+        if((m_localfile.fullPath.find(".nxdb") != std::string::npos) && (m_fileWriteCount > MAX_FILE_WRITE_COUNT))
         {
             flush();
             m_fileWriteCount = 0;
@@ -1937,6 +1937,7 @@ namespace nx_spl
         DEBUGLOG("S3IODevice::flush");
         if(m_altered)
         {
+            m_altered = false;
             if(m_impl.get() != nullptr)
             {
                 try
