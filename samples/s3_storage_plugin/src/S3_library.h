@@ -139,8 +139,7 @@ namespace nx_spl
         aux::FileNameAndPath    m_localfile;
         bool                    m_altered;
         long long               m_localsize;
-        mutable
-        std::mutex              m_mutex;
+        mutable std::mutex      m_mutex;
         std::string             m_implurl;
         std::string             m_user;
         std::string             m_passwd;
@@ -180,8 +179,7 @@ namespace nx_spl
         mutable std::vector<char>   m_urlData;
         mutable FileInfo            m_fileInfo;
         FileListType                m_fileList;
-        mutable
-        FileListIteratorType        m_curFile;
+        mutable FileListIteratorType        m_curFile;
         int                         m_basedirsize;
     }; // class S3FileListIterator
 
@@ -299,7 +297,7 @@ namespace nx_spl
         bool createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string& token) const;
         bool isSessionExpired(const std::string &host,std::string& token) const;
     private:
-        Aws::SDKOptions options;
+        Aws::SDKOptions m_options;
         static std::mutex  m_mutex;
         Timer m_timer;
     }; // class S3StorageFactory
