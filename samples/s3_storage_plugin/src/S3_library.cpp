@@ -14,16 +14,16 @@
 #include <filesystem>
 #include <json/json.h>
 #include <curl/curl.h>
+#include "S3_library.h"
+#include "daily_loger.hpp"
 
 #if defined(__linux__) || defined(__APPLE__)
 #   include <sys/stat.h>
+#   include <sys/utsname.h>
 #elif defined (_WIN32)
 #   include <Windows.h>
-#   include <TlHelp32.h>
+#   include <winternl.h>
 #endif
-
-#include "S3_library.h"
-#include "daily_loger.hpp"
 
 #ifdef _MSC_VER
 #   define NOEXCEPT
@@ -37,6 +37,8 @@
 #define LICENSE_CONFIG_FILE "license.config"
 #define ONE_MINUTE 60 * 1000
 #define TEN_MINUTE 10 * 60 * 1000
+#define MAX_FILE_WRITE_COUNT 1
+#define VERSION "1.0"
 
 bool g_bucketSizeNeedUpdate = true;
 
@@ -597,10 +599,32 @@ namespace nx_spl
                 credentials.SetAWSSecretKey(usecreatKey);
                 
                 #if defined (_WIN32)
+
+                NTSTATUS(WINAPI *RtlGetVersion)(LPOSVERSIONINFOEXW);
+
+                OSVERSIONINFOEXW osInfo;
+
+                *(FARPROC*)&RtlGetVersion = GetProcAddress(GetModuleHandleA("ntdll"), "RtlGetVersion");
+
+                if (NULL != RtlGetVersion)
+                {
+                    osInfo.dwOSVersionInfoSize = sizeof(osInfo);
+                    RtlGetVersion(&osInfo);
+                }
+                clientConfig.userAgent = "Wasabi_storage_sdk/"  + std::string(VERSION) 
+                + " Windows/" + std::to_string(osInfo.dwMajorVersion) + "." 
+                + std::to_string( osInfo.dwMinorVersion) + "." + std::to_string( osInfo.dwBuildNumber);
+                INFOLOG("OS Version",clientConfig.userAgent);
                 impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
                 #else
+                struct utsname unameData;
+                uname(&unameData);
+                clientConfig.userAgent = "Wasabi_storage_sdk/"  + std::string(VERSION) 
+                + " LINUX/" + unameData.release;
+                INFOLOG("OS Version",clientConfig.userAgent);
                 impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
                 #endif
+
                 if(impl.get() != nullptr)
                 {
                     auto outcome = impl->ListBuckets();
@@ -1789,7 +1813,7 @@ namespace nx_spl
         m_altered = true;
         fclose(f);
         m_fileWriteCount++;
-        if(m_fileWriteCount > 10)
+        if(m_fileWriteCount > MAX_FILE_WRITE_COUNT)
         {
             flush();
             m_fileWriteCount = 0;

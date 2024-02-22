@@ -5,6 +5,9 @@ backend, as a Storage Plugin for the VMS Server, built using Storage SDK.
 
 Version 1.0
 
+Feature update:
+1. Added user agent detail in aws connection to wasabi
+
 Resolved issue:
 
 1. issue:empty folder created: 
