@@ -143,6 +143,7 @@ namespace nx_spl
         std::string             m_implurl;
         std::string             m_user;
         std::string             m_passwd;
+        mutable FILE*           m_file;
     }; // class S3IODevice
 
     // Fileinfo list is obtained from the server at construction phase.
@@ -262,6 +263,7 @@ namespace nx_spl
         std::string         m_bucket;
         mutable std::mutex  m_mutex;
         mutable int         m_available;
+        mutable std::map<std::string, IODevice*> m_IODeviceMap;
     }; // class S3storage
 
 
