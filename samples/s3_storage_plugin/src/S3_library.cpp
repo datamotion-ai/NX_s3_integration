@@ -39,7 +39,7 @@
 #define ONE_MINUTE 60 * 1000
 #define TEN_MINUTE 10 * 60 * 1000
 #define MAX_FILE_WRITE_COUNT 1
-#define VERSION "1.0"
+#define VERSION "1.0.1"
 
 bool g_bucketSizeNeedUpdate = true;
 
@@ -609,7 +609,7 @@ namespace nx_spl
                     osInfo.dwOSVersionInfoSize = sizeof(osInfo);
                     RtlGetVersion(&osInfo);
                 }
-                clientConfig.userAgent = "Wasabi_storage_sdk/"  + std::string(VERSION) 
+                clientConfig.userAgent = "Wasabi/1.0 NX Wasabi_storage_sdk/"  + std::string(VERSION) 
                 + " Windows/" + std::to_string(osInfo.dwMajorVersion) + "." 
                 + std::to_string( osInfo.dwMinorVersion) + "." + std::to_string( osInfo.dwBuildNumber);
                 INFOLOG("OS Version",clientConfig.userAgent);
