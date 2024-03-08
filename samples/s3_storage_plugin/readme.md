@@ -3,7 +3,7 @@
 This is a dynamic library that implements remote storage functionality with an S3 server as a
 backend, as a Storage Plugin for the VMS Server, built using Storage SDK.
 
-Version beta 1.0.1
+Version beta 1.0.3
 ------------------------------------
 issue: playback and recording is slower for camera more then 4. resolved issue and made operation faster
 issue: data cleaning issue resolved
