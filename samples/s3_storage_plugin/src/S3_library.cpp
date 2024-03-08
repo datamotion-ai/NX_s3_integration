@@ -37,11 +37,13 @@
 
 #define LICENSE_CONFIG_FILE "license.config"
 #define ONE_MINUTE 60 * 1000
-#define TEN_MINUTE 10 * 60 * 1000
+#define FIVE_MINUTE 5 * ONE_MINUTE
+#define TEN_MINUTE 10 * ONE_MINUTE
 #define MAX_FILE_WRITE_COUNT 1
-#define VERSION "1.0.1"
+#define VERSION "beta-1.0.1"
 
 bool g_bucketSizeNeedUpdate = true;
+std::vector<std::string> g_removeFileFailedList;
 
 namespace nx_spl
 {
@@ -285,36 +287,12 @@ namespace nx_spl
             /* First, get a system tmp path*/
             std::string tmpFolder;
             #if defined (_WIN32)
-                tmpFolder = "C:/Users/Public/tmp";
-                if (!std::filesystem::exists(tmpFolder)) 
-                {
-                    int size_needed = MultiByteToWideChar(CP_UTF8, 0, &tmpFolder[0], static_cast<int>(tmpFolder.size()), nullptr, 0);
-                    std::wstring wstrTo(size_needed, 0);
-                    MultiByteToWideChar(CP_UTF8, 0, &tmpFolder[0], static_cast<int>(tmpFolder.size()), &wstrTo[0], size_needed);
-                    if (!CreateDirectoryW(wstrTo.c_str(), nullptr)) 
-                    {
-                        ERRORLOG("Error creating directory:",GetLastError());
-                        std::filesystem::create_directory(tmpFolder);
-                    }
-
-                    HANDLE hDir = CreateFileW(wstrTo.c_str(),
-                              GENERIC_READ | GENERIC_WRITE | DELETE,
-                              FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                              nullptr,
-                              OPEN_EXISTING,
-                              FILE_FLAG_BACKUP_SEMANTICS,
-                              nullptr);
-                    
-                    if (hDir == INVALID_HANDLE_VALUE) 
-                    {
-                        ERRORLOG("Error opening directory:",GetLastError());
-                        RemoveDirectoryW(wstrTo.c_str());
-                    }
-                    else
-                    {
-                        CloseHandle(hDir);
-                    }
-                }
+                char buf[MAX_PATH + 1];
+                DWORD result = GetTempPathA(sizeof(buf), buf);
+                assert(result > 0);
+                if (result == 0)
+                    std::cerr << "Failed to get a temporary folder path" << std::endl;
+                tmpFolder = buf;
             #elif defined (__unix__)
                 for (const auto& v: {"TMP", "TEMP", "TMPDIR", "TEMPDIR"})
                 {
@@ -679,12 +657,15 @@ namespace nx_spl
         Aws::InitAPI(m_options);
         std::srand((unsigned int) time(0));
         m_timer.start(this, &S3StorageFactory::verifyLicenses,ONE_MINUTE);
+        m_clearMemoryTimer.start(this, &S3StorageFactory::clearMemory,FIVE_MINUTE);
     }
 
     nx_spl::S3StorageFactory::~S3StorageFactory()
     {
         INFOLOG("S3StorageFactory::~S3StorageFactory");
         Aws::ShutdownAPI(m_options);
+        m_timer.stop();
+        m_clearMemoryTimer.stop();
         nx_spl::aux::DailyLogger::Dinitialize();
     }
 
@@ -839,6 +820,23 @@ namespace nx_spl
             {
                 g_licenseAvailable = false;
                 m_timer.setInterval(ONE_MINUTE);
+            }
+        }
+    }
+
+    void nx_spl::S3StorageFactory::clearMemory()
+    {
+        DEBUGLOG("S3StorageFactory::clearMemory");
+        while(!g_removeFileFailedList.empty())
+        {
+            std::string filename = g_removeFileFailedList.back();
+            if (fs::exists(filename.c_str()) && (remove(filename.c_str()) != 0)) 
+            {
+                ERRORLOG("Failed to remove file:",filename.c_str());
+            }
+            else
+            {
+                g_removeFileFailedList.pop_back();
             }
         }
     }
@@ -2035,9 +2033,10 @@ namespace nx_spl
             fclose(m_file);
         m_file = NULL;
         flush();
-        if (remove(m_localfile.fullPath.c_str()) != 0) 
+        if (fs::exists(m_localfile.fullPath.c_str()) && (remove(m_localfile.fullPath.c_str()) != 0)) 
         {
             ERRORLOG("Failed to remove file:",m_localfile.fullPath.c_str());
+            g_removeFileFailedList.push_back(m_localfile.fullPath);
         }
     }
 
