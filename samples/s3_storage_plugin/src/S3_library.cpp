@@ -717,7 +717,7 @@ namespace nx_spl
             }
             else
             {
-                std::string url = "https://" + nxHostUrl + ":7001/rest/v2/licenses";
+                std::string url = "https://" + nxHostUrl + "/rest/v2/licenses";
                 std::string acceptHeader = "accept: application/json";
                 std::string runtimeGuidHeader = "x-runtime-guid: " + token;
                 
@@ -852,7 +852,7 @@ namespace nx_spl
         }
         else
         {
-            std::string url = "https://" + host +  ":7001/rest/v2/login/sessions";
+            std::string url = "https://" + host +  "/rest/v2/login/sessions";
             INFOLOG("url",url);
             curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
             curl_easy_setopt(curl, CURLOPT_POST, 1L);
@@ -910,7 +910,7 @@ namespace nx_spl
         }
         else
         {
-            std::string url = "https://" + host +  ":7001/rest/v2/login/sessions/" + token;
+            std::string url = "https://" + host +  "/rest/v2/login/sessions/" + token;
             INFOLOG("url",url);
             curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
             curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");

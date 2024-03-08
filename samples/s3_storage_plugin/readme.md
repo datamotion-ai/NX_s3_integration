@@ -4,12 +4,13 @@ This is a dynamic library that implements remote storage functionality with an S
 backend, as a Storage Plugin for the VMS Server, built using Storage SDK.
 
 Version beta 1.0.1
-------------------------------
+------------------------------------
 issue: playback and recording is slower for camera more then 4. resolved issue and made operation faster
 issue: data cleaning issue resolved
+issue: updated hostname with port number to access nx server licence detail
 
 Version 1.0
-
+-------------------------------------
 Feature update:
 1. Added user agent detail in aws connection to wasabi
 
