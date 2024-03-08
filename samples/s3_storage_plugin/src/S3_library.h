@@ -296,12 +296,14 @@ namespace nx_spl
     private:
         ~S3StorageFactory();
         void verifyLicenses() ;
+        void clearMemory();
         bool createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string& token) const;
         bool isSessionExpired(const std::string &host,std::string& token) const;
     private:
         Aws::SDKOptions m_options;
         static std::mutex  m_mutex;
         Timer m_timer;
+        Timer m_clearMemoryTimer;
     }; // class S3StorageFactory
 
 }
