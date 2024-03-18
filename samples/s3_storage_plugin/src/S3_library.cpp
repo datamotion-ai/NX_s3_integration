@@ -886,13 +886,19 @@ namespace nx_spl
             CURLcode res1 = curl_easy_perform(curl);
             if (res1 != CURLE_OK) 
             {
+            if (res1 != CURLE_OK) 
+            {
                 ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
+            } 
+            else 
+            {
             } 
             else 
             {
                 INFOLOG("------->",response);
                 Json::Value root;
                 Json::Reader reader;
+                if(reader.parse(response, root) && (root.isMember("token")))
                 if(reader.parse(response, root) && (root.isMember("token")))
                 {
                     token = root["token"].asString();
