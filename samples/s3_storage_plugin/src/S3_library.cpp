@@ -750,67 +750,75 @@ namespace nx_spl
                     Json::Value jsonData;
                     Json::CharReaderBuilder jsonReaderBuilder;
                     std::istringstream jsonStream(response);
-                    Json::parseFromStream(jsonReaderBuilder, jsonStream, &jsonData, nullptr);
+                    bool validJson = Json::parseFromStream(jsonReaderBuilder, jsonStream, &jsonData, nullptr);
 
-                    for (const auto& jsonObject : jsonData) 
+                    if(validJson && jsonData.isArray())
                     {
-
-                        std::istringstream iss(jsonObject["licenseBlock"].asString());
-                        std::vector<std::string> lines;
-                        std::string line;
-
-                        while (std::getline(iss, line, '\n')) 
+                        for (const auto& jsonObject : jsonData) 
                         {
-                            lines.push_back(line);
-                        }
-
-                        Json::Value licenseObject;
-                        
-                        for (const auto& line : lines) 
-                        {
-                            size_t equalPos = line.find('=');
-                            if (equalPos != std::string::npos) 
+                            if(jsonObject.isMember("licenseBlock"))
                             {
-                                std::string key = line.substr(0, equalPos);
-                                std::string value = line.substr(equalPos + 1);
-                                licenseObject[key] = value;
+                                std::istringstream iss(jsonObject["licenseBlock"].asString());
+                                std::vector<std::string> lines;
+                                std::string line;
+
+                                while (std::getline(iss, line, '\n')) 
+                                {
+                                    lines.push_back(line);
+                                }
+
+                                Json::Value licenseObject;
+                                
+                                for (const auto& line : lines) 
+                                {
+                                    size_t equalPos = line.find('=');
+                                    if (equalPos != std::string::npos) 
+                                    {
+                                        std::string key = line.substr(0, equalPos);
+                                        std::string value = line.substr(equalPos + 1);
+                                        licenseObject[key] = value;
+                                    }
+                                }
+
+                                if (licenseObject.isMember("EXPIRATION")) 
+                                {
+                                    std::string expirationValue = licenseObject["EXPIRATION"].asString();
+                                    INFOLOG("---EXPIRATION---->",expirationValue);
+
+                                    std::time_t rawTime;
+                                    std::tm* timeInfo;
+                                    char buffer[80];
+
+                                    std::time(&rawTime);
+                                    timeInfo = std::localtime(&rawTime);
+
+                                    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
+                                    std::string timestamp(buffer);
+
+                                    if(timestamp <= expirationValue)
+                                    {
+                                        INFOLOG("***Valid license***");
+                                        g_licenseAvailable = true;
+                                        m_timer.setInterval(TEN_MINUTE);
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        INFOLOG("Invalid license");
+                                        g_licenseAvailable = false;
+                                    }
+                                } 
+                                else 
+                                {
+                                    ERRORLOG("Key 'EXPIRATION' not found in the JSON object");
+                                    g_licenseAvailable = false;
+                                }
                             }
                         }
-
-                        if (licenseObject.isMember("EXPIRATION")) 
-                        {
-                            std::string expirationValue = licenseObject["EXPIRATION"].asString();
-                            INFOLOG("---EXPIRATION---->",expirationValue);
-
-                            std::time_t rawTime;
-                            std::tm* timeInfo;
-                            char buffer[80];
-
-                            std::time(&rawTime);
-                            timeInfo = std::localtime(&rawTime);
-
-                            std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-                            std::string timestamp(buffer);
-
-                            if(timestamp <= expirationValue)
-                            {
-                                INFOLOG("***Valid license***");
-                                g_licenseAvailable = true;
-                                m_timer.setInterval(TEN_MINUTE);
-                                break;
-                            }
-                            else
-                            {
-                                INFOLOG("Invalid license");
-                                g_licenseAvailable = false;
-                            }
-                        } 
-                        else 
-                        {
-                            ERRORLOG("Key 'EXPIRATION' not found in the JSON object");
-                            g_licenseAvailable = false;
-                        }
-
+                    }
+                    else
+                    {
+                        ERRORLOG("Invalid Json response",response);
                     }
                 }
                 curl_slist_free_all(headers);
@@ -876,13 +884,16 @@ namespace nx_spl
             curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
 
             CURLcode res1 = curl_easy_perform(curl);
-            if (res1 != CURLE_OK) {
+            if (res1 != CURLE_OK) 
+            {
                 ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
-            } else {
+            } 
+            else 
+            {
                 INFOLOG("------->",response);
                 Json::Value root;
                 Json::Reader reader;
-                if(reader.parse(response, root))
+                if(reader.parse(response, root) && (root.isMember("token")))
                 {
                     token = root["token"].asString();
                     ret = true;
