@@ -894,7 +894,6 @@ namespace nx_spl
                 Json::Value root;
                 Json::Reader reader;
                 if(reader.parse(response, root) && (root.isMember("token")))
-                if(reader.parse(response, root) && (root.isMember("token")))
                 {
                     token = root["token"].asString();
                     ret = true;
