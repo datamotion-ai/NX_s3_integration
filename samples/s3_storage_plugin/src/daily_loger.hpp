@@ -1,5 +1,4 @@
-#ifndef DAILY_LOGER_H
-#define DAILY_LOGER_H
+#pragma once
 
 #include <vector>
 #include <string>
@@ -17,8 +16,8 @@
 namespace fs = std::filesystem;
 
 #define DEBUGLOG(...) ""
-// #define INFOLOG(...) ""
-// #define DEBUGLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::DebugP, __FUNCTION__, __LINE__, __VA_ARGS__);
+//#define INFOLOG(...) ""
+//#define DEBUGLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::DebugP, __FUNCTION__, __LINE__, __VA_ARGS__);
 #define INFOLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::InfoP, __FUNCTION__, __LINE__, __VA_ARGS__);
 #define ERRORLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::ErrorP, __FUNCTION__, __LINE__, __VA_ARGS__);
 
@@ -43,10 +42,7 @@ namespace nx_spl
                 static std::ofstream m_file;
 
             public:
-                static void SetVerbosity(LogPriority new_priority) 
-                {
-                    m_verbosity = new_priority;
-                }
+                static void SetVerbosity(LogPriority new_priority);
 
                 template <typename... Args>
                 static void Log(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 
@@ -88,49 +84,13 @@ namespace nx_spl
                     }
                 }
 
-                static void Initialize() 
-                {
-                    createLogDirectory();
-                    updateLogFile();
-                }
+                static void Initialize();
 
-                static void Dinitialize()
-                {
-                    if (m_file.is_open())
-                        m_file.close();
-                    m_currentLogFile.clear();
-                }
+                static void Dinitialize();
 
             private:
-                static void updateLogFile() 
-                {
-                    std::time_t rawTime;
-                    std::tm* timeInfo;
-                    char buffer[80];
-
-                    std::time(&rawTime);
-                    timeInfo = std::localtime(&rawTime);
-
-                    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", timeInfo);
-                    std::string currentDate(buffer);
-
-                    if (m_currentLogFile.empty() || currentDate != m_currentLogFile) 
-                    {
-                        if (m_file.is_open())
-                            m_file.close();
-                        m_currentLogFile = m_logDirectory + "/log_" + currentDate + ".txt";
-                        m_file.open(m_currentLogFile,std::ios_base::app);
-                    }
-                }
-
-                static void createLogDirectory() 
-                {
-                    if (!fs::exists(m_logDirectory)) 
-                    {
-                        fs::create_directory(m_logDirectory);
-                    }
-                }
-
+                static void updateLogFile();
+                static void createLogDirectory();
                 template <typename T>
                 static void logMultipleStrings(std::ostream& stream, T&& arg) 
                 {
@@ -146,11 +106,3 @@ namespace nx_spl
         };
     }
 }
-
-nx_spl::aux::DailyLogger::LogPriority nx_spl::aux::DailyLogger::m_verbosity = nx_spl::aux::DailyLogger::LogPriority::DebugP;
-std::string nx_spl::aux::DailyLogger::m_logDirectory = "./logs";  // Default log directory
-std::string nx_spl::aux::DailyLogger::m_currentLogFile;
-std::mutex  nx_spl::aux::DailyLogger::m_mutex;
-std::ofstream nx_spl::aux::DailyLogger::m_file;
-
-#endif //DAILY_LOGER_H
