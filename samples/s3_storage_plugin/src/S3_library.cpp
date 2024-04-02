@@ -40,7 +40,7 @@
 #define FIVE_MINUTE 5 * ONE_MINUTE
 #define TEN_MINUTE 10 * ONE_MINUTE
 #define MAX_FILE_WRITE_COUNT 1
-#define VERSION "beta-1.0.3"
+#define VERSION "beta-1.0.4"
 
 bool g_bucketSizeNeedUpdate = true;
 std::vector<std::string> g_removeFileFailedList;
