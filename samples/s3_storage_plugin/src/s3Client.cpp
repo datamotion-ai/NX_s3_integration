@@ -1,0 +1,795 @@
+#include <json/json.h>
+#include "s3Client.h"
+#include "common.hpp"
+#define SYNC_FILE "Test.txt"
+
+s3Client::s3Client(const std::string  &url, const std::string  &accessKey, const std::string  &secreatKey, const std::string  &bucket):
+m_url(url),
+m_accessKey(accessKey),
+m_secretKey(secreatKey),
+m_bucket(bucket),
+m_running(false)
+{
+    INFOLOG("s3Client",url,accessKey,secreatKey,bucket);
+}
+
+s3Client::~s3Client()
+{
+    INFOLOG("~s3Client",m_url);
+    stopThread();
+    if(m_impl.get() != nullptr)
+    {
+       m_impl.reset(); 
+    }
+}
+
+bool s3Client::establishS3Connection()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    INFOLOG("establishS3Connection");
+    Aws::Client::ClientConfiguration clientConfig;
+    clientConfig.scheme = Aws::Http::Scheme::HTTPS;
+    clientConfig.endpointOverride = Aws::String(m_url);
+
+    Aws::Auth::AWSCredentials credentials;
+    credentials.SetAWSAccessKeyId(m_accessKey);
+    credentials.SetAWSSecretKey(m_secretKey);
+    
+    #if defined (_WIN32)
+
+        NTSTATUS(WINAPI *RtlGetVersion)(LPOSVERSIONINFOEXW);
+
+        OSVERSIONINFOEXW osInfo;
+
+        *(FARPROC*)&RtlGetVersion = GetProcAddress(GetModuleHandleA("ntdll"), "RtlGetVersion");
+
+        if (NULL != RtlGetVersion)
+        {
+            osInfo.dwOSVersionInfoSize = sizeof(osInfo);
+            RtlGetVersion(&osInfo);
+        }
+
+        clientConfig.userAgent = "Wasabi/1.0 NX Wasabi_storage_sdk/"  + std::string(VERSION) 
+        + " Windows/" + std::to_string(osInfo.dwMajorVersion) + "." 
+        + std::to_string( osInfo.dwMinorVersion) + "." + std::to_string( osInfo.dwBuildNumber);
+        INFOLOG("OS Version",clientConfig.userAgent);
+
+        m_impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
+    #else
+        struct utsname unameData;
+        uname(&unameData);
+        clientConfig.userAgent = "Wasabi_storage_sdk/"  + std::string(VERSION) + " LINUX/" + unameData.release;
+        INFOLOG("OS Version",clientConfig.userAgent);
+        m_impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
+    #endif
+
+    if(m_impl.get() != nullptr)
+    {
+        auto outcome = m_impl->ListBuckets();
+        if (outcome.IsSuccess()) 
+        {
+            bool bucketFound = false;
+            auto objects = outcome.GetResult().GetBuckets();
+            for (const auto& object : objects) 
+            {
+                if(object.GetName() == m_bucket)
+                {
+                    bucketFound = true;
+                    break;
+                } 
+            }
+            if((bucketFound == false) && (createBucket() == false))
+            {
+                ERRORLOG("Failed to create bucket S3",m_bucket);
+            }
+            else
+            {
+                INFOLOG("SuccessFully establish s3 connection with host: ");
+                m_running = true;
+                uploadThread = std::thread(&s3Client::fileUploadThread, this);
+                return true;
+            }
+        }
+        else
+        {
+            ERRORLOG("Failed to list bucket lists!! connection failed!!");
+        }
+    }
+    else
+    {
+        ERRORLOG("implPtrType is nullptr");
+    }
+
+    return false;
+}
+
+bool s3Client::remoteUriExists(const std::string& uri) 
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DEBUGLOG(uri,m_bucket);
+    bool found = false;
+    if(m_impl.get() != nullptr)
+    {
+        Aws::S3::Model::HeadObjectRequest request;
+        request.WithBucket(m_bucket).WithKey(uri);
+        const auto response = m_impl->HeadObject(request);
+        found = response.IsSuccess();
+    }
+    else
+    {
+        ERRORLOG("implPtrType is nullptr!");
+    }
+    return found;
+}
+
+bool s3Client::remoteDirExists(const std::string &uri)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    bool found = false;
+    if(m_impl.get() != nullptr)
+    {
+        std::string dir;
+        if(uri[0] == '/')
+        {
+            dir.assign(uri.begin()+1, uri.end());
+        }
+        else
+        {
+            dir.assign(uri.begin(), uri.end());
+        }
+        dir.append("/");
+
+        Aws::S3::Model::ListObjectsV2Request request;
+        request.SetBucket(m_bucket);
+        request.WithPrefix(dir);
+        request.WithDelimiter("/");
+        
+        auto outcome = m_impl->ListObjectsV2(request);
+        if (outcome.IsSuccess()) 
+        {
+            DEBUGLOG("Directory found:",dir,m_bucket);
+            return 1;
+        }
+        else
+        {
+            ERRORLOG("Failed to find directory:",dir,m_bucket);
+            return 0;
+        }
+    }
+    else
+    {
+        ERRORLOG("implPtrType is null ptr!!");
+        return 0;
+    }
+    return found;
+}
+
+uint64_t s3Client::remoteFolderSize(const std::string& uri)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DEBUGLOG("uri:",uri);
+    if(m_impl.get() == nullptr)
+    {
+        ERRORLOG("implPtrType is nullptr!");
+        throw std::runtime_error("implPtrType is nullptr!!");
+    }
+
+    if (uri.empty()) 
+    {
+        INFOLOG("empty file name");
+        throw std::runtime_error("empty file name");
+    }
+
+    uint64_t totalSize = 0;
+    Aws::S3::Model::ListObjectsRequest request;
+    request.SetBucket(m_bucket);
+    request.WithPrefix(m_bucket + uri);
+    
+    
+    auto outcome = m_impl->ListObjects(request);
+    if (outcome.IsSuccess()) 
+    {
+        for (const auto& object : outcome.GetResult().GetContents())
+        {
+            // Get metadata for each object to get the size
+            Aws::S3::Model::HeadObjectRequest headObjectRequest;
+            headObjectRequest.WithBucket(m_bucket)
+                .WithKey(object.GetKey());
+
+            Aws::S3::Model::HeadObjectOutcome headObjectOutcome = m_impl->HeadObject(headObjectRequest);
+
+            if (headObjectOutcome.IsSuccess())
+            {
+                totalSize += headObjectOutcome.GetResult().GetContentLength();
+            }
+            else
+            {
+                ERRORLOG("Failed to get metadata",object.GetKey());
+            }
+        }
+    }
+    else 
+    {
+        ERRORLOG("Remote dir not exists",uri,m_bucket,outcome.GetError().GetMessage().c_str());
+        throw nx_spl::aux::BadUrlException("Remote dir not exists");
+    }
+    return totalSize;
+}
+
+uint64_t s3Client::getRemoteFileSize(const std::string& uri)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DEBUGLOG(uri,m_bucket);
+    uint64_t size = 0;
+    if(m_impl.get() != nullptr)
+    {
+        Aws::S3::Model::HeadObjectRequest request;
+        request.SetBucket(m_bucket);
+        request.SetKey(uri);
+        const auto response = m_impl->HeadObject(request);
+        if (!response.IsSuccess()) 
+        {
+            ERRORLOG("File not found",uri,response.GetError().GetMessage());
+        }
+        else 
+        {
+            size = response.GetResult().GetContentLength();
+        }
+    }
+    else
+    {
+        ERRORLOG("implPtrType is nullptr");
+    }
+    return size;
+}
+
+std::vector<std::string> s3Client::getobjectKeys(const char *dirUrl)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DEBUGLOG("getobjectKeys",dirUrl);
+    std::vector<std::string> objectList;
+    if(m_impl.get() == nullptr)
+    {
+        ERRORLOG("implPtrType is nullptr");
+        return objectList;
+    }
+
+    std::string uri = dirUrl;
+    std::string dir;
+    if(uri[0] == '/')
+    {
+        dir.assign(uri.begin()+1, uri.end());
+    }
+    else
+    {
+        dir.assign(uri.begin(), uri.end());
+    }
+    dir.append("/");
+    
+
+    Aws::S3::Model::ListObjectsV2Request request;
+    request.SetBucket(m_bucket);
+    request.WithPrefix(dir);
+    request.WithDelimiter("/");
+    
+    auto outcome = m_impl->ListObjectsV2(request);
+    if (outcome.IsSuccess()) 
+    {
+        auto folderObjects = outcome.GetResult().GetCommonPrefixes();
+        for (const auto& object : folderObjects) 
+        {
+            std::string line;
+            std::string folderName;
+            folderName.assign(object.GetPrefix().begin()+dir.size(),object.GetPrefix().end()-1);
+            line.append(folderName.c_str());
+            line.append(",");
+            line.append(std::to_string(nx_spl::isDir));
+            line.append(",");
+            line.append("0");
+            DEBUGLOG(line);
+            objectList.push_back(line);
+            line.clear();
+        }
+        
+        auto fileObjects = outcome.GetResult().GetContents();
+        for (const auto& object : fileObjects) 
+        {
+            std::string line;
+            std::string fileName;
+            fileName.assign(object.GetKey().begin()+dir.size(),object.GetKey().end());
+            line.append(fileName);
+            line.append(",");
+            line.append(std::to_string(nx_spl::isFile));
+            line.append(",");
+            Aws::S3::Model::HeadObjectRequest headObjectRequest;
+            headObjectRequest.SetBucket(m_bucket);
+            headObjectRequest.SetKey(object.GetKey());
+            const auto response = m_impl->HeadObject(headObjectRequest);
+            if (!response.IsSuccess()) 
+            {
+                line.append("0");
+            }
+            else 
+            {
+                line.append(std::to_string(response.GetResult().GetContentLength()));
+            }
+            DEBUGLOG(line);
+            objectList.push_back(line);
+            line.clear();
+        }
+    }
+    return std::move(objectList);
+}
+
+bool s3Client::renameFile(const char *oldUrl, const char *newUrl)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DEBUGLOG("renameFile",oldUrl,newUrl);
+    bool ret = false;
+    if(m_impl.get() != nullptr)
+    {
+        Aws::S3::Model::CopyObjectRequest copyRequest;
+        copyRequest.WithBucket(m_bucket)
+                    .WithCopySource(m_bucket + "/" + oldUrl)
+                    .WithKey(newUrl);
+
+        const auto response = m_impl->CopyObject(copyRequest);
+        if (!response.IsSuccess()) 
+        {
+            ERRORLOG("Failed to copy object",oldUrl,newUrl,m_bucket,response.GetError().GetMessage().c_str());
+        }
+        else 
+        {
+            Aws::S3::Model::DeleteObjectRequest request;
+            request.WithBucket(m_bucket).WithKey(oldUrl);
+
+            const auto response = m_impl->DeleteObject(request);
+            if (!response.IsSuccess()) 
+            {
+                ERRORLOG("Failed to delete object!!",oldUrl,m_bucket,response.GetError().GetMessage().c_str());
+            }
+            else 
+            {
+                ret = true;
+            }
+        }
+    }
+    else
+    {
+        ERRORLOG("implPtrType is nullptr!")
+    }
+    return ret;
+}
+
+bool s3Client::removeUrl(const char *url)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DEBUGLOG("removeUrl",url);
+    bool ret = false;
+    if(m_impl.get() != nullptr)
+    {
+        Aws::S3::Model::DeleteObjectRequest request;
+        request.WithBucket(m_bucket)
+                .WithKey(url);
+
+        const auto response = m_impl->DeleteObject(request);
+        if (!response.IsSuccess()) 
+        {
+            ERRORLOG("Failed to delete directory",url,m_bucket,response.GetError().GetMessage().c_str());
+        }
+        else 
+        {
+            INFOLOG("deleted directory",url,m_bucket);
+            ret = true;
+        }
+    }
+    else
+    {
+        ERRORLOG("implPtrType is nullptr!");
+    }
+    return ret;
+}
+
+bool s3Client::addFileToUploadInQueue(const char *url)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    auto it = std::find(m_fileToUpload.begin(), m_fileToUpload.end(), url);
+    if (it == m_fileToUpload.end()) 
+    {
+        m_fileToUpload.push_back(std::string(url));
+        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+        std::ifstream inputFile(file.fullPath);
+        if (inputFile.is_open())
+        {
+            Json::Value root;
+            Json::Reader reader;
+            if (reader.parse(inputFile, root)) 
+            {
+                if(root.isArray())
+                {
+                    for (auto& jsonObject : root) 
+                    {
+                        if((jsonObject["host"].asString() == m_url)  && 
+                            (jsonObject["bucket"].asString() == m_bucket))
+                        {
+                            Json::Value& filesArray = jsonObject["files"];
+                            filesArray.append(std::string(url));
+
+                            std::ofstream outputFile(file.fullPath);
+                            if (!outputFile.is_open()) {
+                                ERRORLOG("Error opening JSON file:",file.fullPath);
+                                return 1;
+                            }
+
+                            Json::StyledStreamWriter writer;
+                            writer.write(outputFile, root);
+                            outputFile.close();
+                            break;
+                        }
+                    }
+                }
+            }
+            else
+            {
+                ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
+            }
+            inputFile.close();
+        }
+        else
+        {
+            ERRORLOG("Error opening JSON file:",file.fullPath);
+        }
+    }
+    return true;
+}
+
+bool s3Client::uploadFile(const char *url, std::string fileName)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DEBUGLOG("uploadFile",url,fileName);
+    bool ret = false;
+    if(m_impl.get() != nullptr)
+    {
+        std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
+                                                                                fileName.c_str(),
+                                                                                std::ios_base::in | std::ios_base::binary);
+        if (!*inputData) 
+        {
+            ERRORLOG("Unable to read local file:",fileName);
+        }
+        else
+        {
+            INFOLOG("Uploading file!!",fileName);
+            Aws::S3::Model::PutObjectRequest request;
+            request.SetBucket(m_bucket);
+            request.SetKey(url);
+            request.SetBody(inputData);
+            Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
+            static_cast<Aws::FStream*>(inputData.get())->close();
+            if (!outcome.IsSuccess()) 
+            {
+                ERRORLOG("Unable to upload file:",url,outcome.GetError().GetMessage().c_str());
+            }
+            else 
+            {
+                INFOLOG("Successfully uploaded file:",fileName,url,m_bucket);
+                ret = true;
+            }
+        }
+    }
+    else
+    {
+        ERRORLOG("implPtrType is nullptr!");
+    }
+    return ret;
+}
+
+bool s3Client::downloadFile(const char *url, std::string fileName)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    INFOLOG("downloadFile",url,fileName);
+    bool ret = false;
+    if(m_impl.get() != nullptr)
+    {
+        Aws::S3::Model::GetObjectRequest request;
+        request.SetBucket(m_bucket);
+        request.SetKey(url);
+        Aws::S3::Model::GetObjectOutcome outcome = m_impl->GetObject(request);
+
+        if (!outcome.IsSuccess()) 
+        {
+            ERRORLOG("Download failed:",url,m_bucket,outcome.GetError().GetMessage().c_str());
+        }
+        else 
+        {
+            auto& objectStream = outcome.GetResultWithOwnership().GetBody();
+
+            std::ofstream fileStream(fileName.c_str(), std::ios::out | std::ios::binary);
+            if (fileStream) 
+            {
+                fileStream << objectStream.rdbuf();
+                fileStream.close();
+                INFOLOG("File downaloded and stored in file",fileName);
+                ret = true;
+            } 
+            else 
+            {
+                ERRORLOG("Local file write failed",fileName);
+            }
+        }
+    }
+    else
+    {
+        ERRORLOG("implPtrType is nullptr!");
+    }
+    return ret;
+}
+
+bool s3Client::isAvailable()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    bool available = false;
+    if(m_impl.get() != nullptr)
+    {
+        Aws::S3::Model::PutObjectRequest request;
+        request.SetBucket(m_bucket);
+        request.SetKey(SYNC_FILE);
+        auto input_data = Aws::MakeShared<Aws::StringStream>("StringStream");
+        *input_data << "Test";
+        request.SetBody(input_data);
+        Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
+        if (!outcome.IsSuccess()) 
+        {
+            ERRORLOG("Unable to upload file:",SYNC_FILE,outcome.GetError().GetMessage().c_str());
+        }
+        else 
+        {
+            available = true;
+        }
+    }
+    return available;
+}
+
+void s3Client::stopThread()
+{
+    INFOLOG("stopThread");
+    m_running = false;
+    if (uploadThread.joinable()) 
+    {
+        uploadThread.join();
+    }
+    m_running = false;
+    INFOLOG("stopThread Done");
+}
+
+bool s3Client::createBucket()
+{
+    DEBUGLOG("createBucket");
+    bool ret = false;
+    if(m_impl.get() != nullptr)
+    {
+        Aws::S3::Model::CreateBucketRequest request;
+        request.SetBucket(m_bucket);
+        
+        Aws::S3::Model::CreateBucketOutcome outcome = m_impl->CreateBucket(request);
+        if (!outcome.IsSuccess()) 
+        {
+            ERRORLOG("Failed to create bucket",m_bucket,outcome.GetError().GetMessage());
+        }
+        else 
+        {
+            INFOLOG("bucket created",m_bucket);
+            ret = true;
+        }
+    }
+    else
+    {
+        ERRORLOG("implPtrType is nullptr");
+    }
+    return ret;
+}
+
+void s3Client::fileUploadThread()
+{
+    DEBUGLOG("fileUploadThread");
+    this->updateFileUploadList();
+    while (m_running) 
+    {
+        if(m_fileToUpload.empty())
+        {
+            std::this_thread::sleep_for(std::chrono::milliseconds(ONE_MINUTE));
+            continue;
+        }
+        std::string fileToUpload;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            fileToUpload = m_fileToUpload.back();
+            m_fileToUpload.pop_back();
+        }
+        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(std::string(fileToUpload));
+        if(fs::exists(file.fullPath))
+        {
+            bool fileUploaded = false;
+            if(m_impl.get() != nullptr)
+            {
+                std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
+                                                                                        file.fullPath.c_str(),
+                                                                                        std::ios_base::in | std::ios_base::binary);
+                if (!*inputData) 
+                {
+                    ERRORLOG("Unable to read local file:",file.fullPath);
+                }
+                else
+                {
+                    INFOLOG("Uploading file!!",file.fullPath);
+                    Aws::S3::Model::PutObjectRequest request;
+                    request.SetBucket(m_bucket);
+                    request.SetKey(fileToUpload);
+                    request.SetBody(inputData);
+                    Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
+                    static_cast<Aws::FStream*>(inputData.get())->close();
+                    if (!outcome.IsSuccess()) 
+                    {
+                        ERRORLOG("Unable to upload file:",fileToUpload,outcome.GetError().GetMessage().c_str());
+                    }
+                    else 
+                    {
+                        INFOLOG("Successfully uploaded file:",file.fullPath,fileToUpload,m_bucket);
+                        if (remove(file.fullPath.c_str()) != 0) 
+                        {
+                            ERRORLOG("Failed to remove file:",file.fullPath.c_str());
+                            g_removeFileList.push_back(file.fullPath);
+                        }
+                        fileUploaded = true;
+                    }
+                }
+            }
+            else
+            {
+                ERRORLOG("implPtrType is nullptr!");
+            }
+            if(!fileUploaded)
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_fileToUpload.push_back(fileToUpload);
+            }
+            else
+            {
+                nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+                std::ifstream inputFile(file.fullPath);
+                if (inputFile.is_open())
+                {
+                    Json::Value root;
+                    Json::Reader reader;
+                    if (reader.parse(inputFile, root)) 
+                    {
+                        if(root.isArray())
+                        {
+                            for (auto& jsonObject : root) 
+                            {
+                                if((jsonObject["host"].asString() == m_url)  && 
+                                    (jsonObject["bucket"].asString() == m_bucket) && jsonObject["files"].isArray())
+                                {
+                                    Json::Value& filesArray = jsonObject["files"];
+
+                                    for (Json::ArrayIndex i = 0; i < filesArray.size(); ++i) 
+                                    {
+                                        if (filesArray[i].asString() == fileToUpload) {
+                                            filesArray.removeIndex(i, &filesArray[i]);
+                                            break;
+                                        }
+                                    }
+
+                                    std::ofstream outputFile(file.fullPath);
+                                    if (!outputFile.is_open()) {
+                                        ERRORLOG("Error opening JSON file:",file.fullPath);
+                                    }
+                                    else
+                                    {
+                                        Json::StyledStreamWriter writer;
+                                        writer.write(outputFile, root);
+                                        outputFile.close();
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    else
+                    {
+                        ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
+                    }
+                    inputFile.close();
+                }
+                else
+                {
+                    ERRORLOG("Error opening JSON file:",file.fullPath);
+                }
+            }
+        }
+        else
+        {
+           ERRORLOG("File do not exist to uplaod!!",fileToUpload);
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(ONE_SECOND));
+    }
+}
+
+void s3Client::updateFileUploadList()
+{
+    m_fileToUpload.clear();
+    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+    std::ifstream inputFile(file.fullPath);
+    if (inputFile.is_open())
+    {
+        Json::Value root;
+        Json::Reader reader;
+        if (reader.parse(inputFile, root)) 
+        {
+            if(root.isArray())
+            {
+                bool hostFound = false;
+                for (auto& jsonObject : root) 
+                {
+                    if((jsonObject["host"].asString() == m_url)  && 
+                        (jsonObject["bucket"].asString() == m_bucket) && jsonObject["files"].isArray())
+                    {
+                        hostFound = true;
+                        Json::Value& filesArray = jsonObject["files"];
+
+                        for (Json::ArrayIndex i = 0; i < filesArray.size(); ++i) 
+                        {
+                            m_fileToUpload.push_back(filesArray[i].asString());
+                        }
+                        break;
+                    }
+                }
+                if(hostFound == false)
+                {
+                    Json::Value jsonObject;
+                    jsonObject["host"] = m_url;
+                    jsonObject["bucket"] = m_bucket;
+                    Json::Value filesArray(Json::arrayValue);
+                    jsonObject["files"] = filesArray;
+                    root.append(jsonObject);
+                    std::ofstream outputFile(file.fullPath);
+                    if (!outputFile.is_open()) {
+                        ERRORLOG("Error opening JSON file:",file.fullPath);
+                    }
+                    else
+                    {
+                        Json::StyledStreamWriter writer;
+                        writer.write(outputFile, root);
+                        outputFile.close();
+                    }
+                }
+            }
+        }
+        else
+        {
+            ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
+        }
+        inputFile.close();
+    }
+    else
+    {
+        ERRORLOG("Error opening JSON file:",file.fullPath);
+        Json::Value root(Json::arrayValue);
+        Json::Value jsonObject;
+        jsonObject["host"] = m_url;
+        jsonObject["bucket"] = m_bucket;
+        Json::Value filesArray(Json::arrayValue);
+        jsonObject["files"] = filesArray;
+        root.append(jsonObject);
+        std::ofstream outputFile(file.fullPath);
+        if (!outputFile.is_open()) {
+            ERRORLOG("Error opening JSON file:",file.fullPath);
+        }
+        else
+        {
+            Json::StyledStreamWriter writer;
+            writer.write(outputFile, root);
+            outputFile.close();
+        }
+    }
+}

@@ -12,76 +12,16 @@
 #include <sstream>
 #include <iostream>
 
-#include <aws/core/Aws.h>
-#include <aws/s3/S3Client.h>
-#include <aws/core/auth/AWSCredentialsProvider.h>
-#include <aws/core/client/ClientConfiguration.h>
-#include <aws/s3/model/HeadObjectRequest.h>
-#include <aws/s3/model/PutObjectRequest.h>
-#include <aws/s3/model/ListObjectsRequest.h>
-#include <aws/s3/model/CreateBucketRequest.h>
-#include <aws/s3/model/GetObjectRequest.h>
-#include <aws/s3/model/CopyObjectRequest.h>
-#include <aws/s3/model/DeleteObjectRequest.h>
-#include <aws/s3/model/ListObjectsV2Request.h>
-
 #include <curl/curl.h>
 
+#include "s3Client.h"
 #include "storage/third_party_storage.h"
 #include "timer.h"
 
 namespace nx_spl
 {
-    namespace aux
-    { 
-        // Generic reference counter Mix-In. Private inherit it.
-        template <typename P>
-        class PluginRefCounter
-        {
-        public:
-            PluginRefCounter()
-                : m_count(1)
-            {}
 
-            int p_addRef() const { return ++m_count; }
-
-            int p_releaseRef() const
-            {
-                int new_count = --m_count;
-                if (new_count <= 0) {
-                    delete static_cast<const P*>(this);
-                }
-                return new_count;
-            }
-        private:
-            mutable std::atomic<int> m_count;
-        }; // class PluginRefCounter
-
-        class NonCopyable
-        {
-        public:
-            NonCopyable() {}
-            NonCopyable(const NonCopyable&);
-            NonCopyable& operator =(const NonCopyable&);
-
-            NonCopyable(NonCopyable&&);
-            NonCopyable& operator =(NonCopyable&&);
-        }; // class NonCopyable
-
-        /**
-         * A file name and a full path, containing this name. When we communicate with the remote
-         * FTP server, * we operate bare file names. But locally we need to map this file to a full
-         * path. That's why it's convenient to have both.
-         */
-        struct FileNameAndPath
-        {
-            std::string name;
-            std::string fullPath;
-        }; // struct FileNameAndPath
-        
-    } //namespace aux
-
-    typedef std::shared_ptr<Aws::S3::S3Client> implPtrType;
+    typedef std::shared_ptr<s3Client> implPtrType;
 
     class S3IODevice
         : public IODevice,
@@ -91,8 +31,7 @@ namespace nx_spl
         friend class aux::PluginRefCounter<S3IODevice>;
     public:
             S3IODevice(
-            const char *uri,
-            const char *bucket, 
+            const char *uri, 
             int mode, 
             const implPtrType &impl
         );
@@ -134,7 +73,6 @@ namespace nx_spl
         int                     m_fileWriteCount;
         mutable int64_t         m_pos;
         std::string             m_uri; //file URI
-        std::string             m_bucket;
         implPtrType             m_impl;
         aux::FileNameAndPath    m_localfile;
         bool                    m_altered;
@@ -257,10 +195,6 @@ namespace nx_spl
         mutable implPtrType m_impl;
         mutable uint64_t    m_freebucketSize;
         uint64_t            m_totalSpace;
-        std::string         m_url;
-        std::string         m_accessKey;
-        std::string         m_secretKey;
-        std::string         m_bucket;
         mutable std::mutex  m_mutex;
         mutable int         m_available;
         mutable std::map<std::string, IODevice*> m_IODeviceMap;
