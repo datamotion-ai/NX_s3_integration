@@ -78,9 +78,6 @@ namespace nx_spl
         bool                    m_altered;
         long long               m_localsize;
         mutable std::mutex      m_mutex;
-        std::string             m_implurl;
-        std::string             m_user;
-        std::string             m_passwd;
         mutable FILE*           m_file;
     }; // class S3IODevice
 
@@ -196,8 +193,7 @@ namespace nx_spl
         mutable uint64_t    m_freebucketSize;
         uint64_t            m_totalSpace;
         mutable std::mutex  m_mutex;
-        mutable int         m_available;
-        mutable std::map<std::string, IODevice*> m_IODeviceMap;
+        mutable bool        m_available;
     }; // class S3storage
 
 
@@ -218,8 +214,6 @@ namespace nx_spl
 
         virtual const char* lastErrorMessage(int ecode) const override;
 
-        static bool isLicenseAvailable();
-
     public: // plugin interface implementation
         virtual void* queryInterface(const nxpl::NX_GUID& interfaceID) override;
 
@@ -229,14 +223,10 @@ namespace nx_spl
 
     private:
         ~S3StorageFactory();
-        void verifyLicenses() ;
         void clearMemory();
-        bool createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string& token) const;
-        bool isSessionExpired(const std::string &host,std::string& token) const;
     private:
         Aws::SDKOptions m_options;
         static std::mutex  m_mutex;
-        Timer m_timer;
         Timer m_clearMemoryTimer;
     }; // class S3StorageFactory
 

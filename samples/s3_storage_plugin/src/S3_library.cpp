@@ -12,11 +12,10 @@
 #include <iostream>
 #include <cstdio>
 #include <filesystem>
-#include <json/json.h>
-#include <curl/curl.h>
 #include <map>
 #include "S3_library.h"
 #include "daily_loger.hpp"
+#include "ServerManager.h"
 
 namespace nx_spl
 {
@@ -32,7 +31,6 @@ namespace nx_spl
         m_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Error;
         Aws::InitAPI(m_options);
         std::srand((unsigned int) time(0));
-        m_timer.start(this, &S3StorageFactory::verifyLicenses,ONE_MINUTE);
         m_clearMemoryTimer.start(this, &S3StorageFactory::clearMemory,FIVE_MINUTE);
     }
 
@@ -40,184 +38,10 @@ namespace nx_spl
     {
         INFOLOG("S3StorageFactory::~S3StorageFactory");
         Aws::ShutdownAPI(m_options);
-        m_timer.stop();
         m_clearMemoryTimer.stop();
+        
         nx_spl::aux::DailyLogger::Dinitialize();
-    }
-
-    void nx_spl::S3StorageFactory::verifyLicenses() 
-    {
-        INFOLOG("S3StorageFactory::verifyLicenses");
-        std::lock_guard<std::mutex> lock(m_mutex);
-        Json::Reader reader;
-
-        std::ifstream jsonFile(LICENSE_CONFIG_FILE);
-        if (!jsonFile.is_open()) 
-        {
-            ERRORLOG("Error opening config file:",LICENSE_CONFIG_FILE);
-            g_licenseAvailable = false;
-            m_timer.setInterval(ONE_MINUTE);
-            return;
-        }
-        else
-        {
-            Json::Value root;
-            if (!reader.parse(jsonFile, root)) 
-            {
-                ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
-                g_licenseAvailable = false;
-                m_timer.setInterval(ONE_MINUTE);
-                return ;
-            }
-
-            const std::string nxHostUrl = root["host"].asString();
-            const std::string nxUserName = root["username"].asString();
-            const std::string nxPassword = root["password"].asString();
-
-            static std::string token;
-            if(token.empty() || isSessionExpired(nxHostUrl, token))
-            {
-                if(!createSession(nxHostUrl,nxUserName,nxPassword,token))
-                {
-                    ERRORLOG("Failed to create session!!");
-                    g_licenseAvailable = false;
-                    m_timer.setInterval(ONE_MINUTE);
-                    return;
-                }
-            }
-            CURL* curl = curl_easy_init();
-            if (!curl) 
-            {
-                ERRORLOG("Error initializing libcurl.");
-                g_licenseAvailable = false;
-            }
-            else
-            {
-                std::string url = "https://" + nxHostUrl + "/rest/v2/licenses";
-                std::string acceptHeader = "accept: application/json";
-                std::string runtimeGuidHeader = "x-runtime-guid: " + token;
-                
-                curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-                curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
-
-                struct curl_slist* headers = NULL;
-                headers = curl_slist_append(headers, acceptHeader.c_str());
-                headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
-                curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-                std::string response;
-                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
-                curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-                std::string headerResponse;
-                curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, aux::headerCallback);
-                curl_easy_setopt(curl, CURLOPT_HEADERDATA, &headerResponse);
-
-                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-                curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
-
-                CURLcode res1 = curl_easy_perform(curl);
-                if (res1 != CURLE_OK) 
-                {
-                    ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
-                    g_licenseAvailable = false;
-                } 
-                else 
-                {
-                    INFOLOG("------->",response);
-                    INFOLOG("------->",headerResponse);
-                    if(headerResponse.find("Nx Witness") != std::string::npos)
-                    {
-                        Json::Value jsonData;
-                        Json::CharReaderBuilder jsonReaderBuilder;
-                        std::istringstream jsonStream(response);
-                        bool validJson = Json::parseFromStream(jsonReaderBuilder, jsonStream, &jsonData, nullptr);
-
-                        if(validJson && jsonData.isArray())
-                        {
-                            for (const auto& jsonObject : jsonData) 
-                            {
-                                if(jsonObject.isMember("licenseBlock"))
-                                {
-                                    std::istringstream iss(jsonObject["licenseBlock"].asString());
-                                    std::vector<std::string> lines;
-                                    std::string line;
-
-                                    while (std::getline(iss, line, '\n')) 
-                                    {
-                                        lines.push_back(line);
-                                    }
-
-                                    Json::Value licenseObject;
-                                    
-                                    for (const auto& line : lines) 
-                                    {
-                                        size_t equalPos = line.find('=');
-                                        if (equalPos != std::string::npos) 
-                                        {
-                                            std::string key = line.substr(0, equalPos);
-                                            std::string value = line.substr(equalPos + 1);
-                                            licenseObject[key] = value;
-                                        }
-                                    }
-
-                                    if (licenseObject.isMember("EXPIRATION")) 
-                                    {
-                                        std::string expirationValue = licenseObject["EXPIRATION"].asString();
-                                        INFOLOG("---EXPIRATION---->",expirationValue);
-
-                                        std::time_t rawTime;
-                                        std::tm* timeInfo;
-                                        char buffer[80];
-
-                                        std::time(&rawTime);
-                                        timeInfo = std::localtime(&rawTime);
-
-                                        std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-                                        std::string timestamp(buffer);
-
-                                        if(timestamp <= expirationValue)
-                                        {
-                                            INFOLOG("***Valid license***");
-                                            g_licenseAvailable = true;
-                                            m_timer.setInterval(TEN_MINUTE);
-                                            break;
-                                        }
-                                        else
-                                        {
-                                            INFOLOG("Invalid license");
-                                            g_licenseAvailable = false;
-                                        }
-                                    } 
-                                    else 
-                                    {
-                                        ERRORLOG("Key 'EXPIRATION' not found in the JSON object");
-                                        g_licenseAvailable = false;
-                                    }
-                                }
-                            }
-                        }
-                        else
-                        {
-                            ERRORLOG("Invalid Json response",response);
-                        }
-                    }
-                    else
-                    {
-                        ERRORLOG("Oops!!, Invalid Server!!",headerResponse);
-                    }
-                }
-                curl_slist_free_all(headers);
-                curl_easy_reset(curl);
-            }
-            if(g_licenseAvailable == false)
-            {
-                g_licenseAvailable = false;
-                m_timer.setInterval(ONE_MINUTE);
-            }
-        }
+        ServerManager::deleteInstance();
     }
 
     void nx_spl::S3StorageFactory::clearMemory()
@@ -236,123 +60,6 @@ namespace nx_spl
                 g_removeFileList.pop_back();
             }
         }
-    }
-
-    bool nx_spl::S3StorageFactory::createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string &token) const
-    {
-        INFOLOG("S3StorageFactory::createSession",host,usr,pswd);
-        bool ret = false;
-        CURL* curl = curl_easy_init();
-        if (!curl) 
-        {
-            ERRORLOG("Error initializing libcurl.");
-        }
-        else
-        {
-            std::string url = "https://" + host +  "/rest/v2/login/sessions";
-            INFOLOG("url",url);
-            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-            curl_easy_setopt(curl, CURLOPT_POST, 1L);
-
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
-
-            struct curl_slist* headers = nullptr;
-            headers = curl_slist_append(headers, "accept: application/json");
-            headers = curl_slist_append(headers, "Content-Type: application/json");
-            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-            std::string data = "{\"username\":\""+ usr + "\",\"password\":\"" + pswd + "\",\"setCookie\":true}";
-            INFOLOG("data",data);
-            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
-
-            std::string response;
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-            CURLcode res1 = curl_easy_perform(curl);
-            if (res1 != CURLE_OK) 
-            {
-                ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
-            } 
-            else 
-            {
-                INFOLOG("------->",response);
-                Json::Value root;
-                Json::Reader reader;
-                if(reader.parse(response, root) && (root.isMember("token")))
-                {
-                    token = root["token"].asString();
-                    ret = true;
-                }
-                else
-                {
-                    ERRORLOG("Invalid json resopense",response);
-                }
-                
-            }
-            curl_slist_free_all(headers);
-            curl_easy_reset(curl);
-        }
-        return ret;
-    }
-
-    bool nx_spl::S3StorageFactory::isSessionExpired(const std::string &host, std::string &token) const
-    {
-        INFOLOG("S3StorageFactory::isSessionExpired",host,token);
-        bool ret = true;
-        CURL* curl = curl_easy_init();
-        if (!curl) 
-        {
-            ERRORLOG("Error initializing libcurl.");
-        }
-        else
-        {
-            std::string url = "https://" + host +  "/rest/v2/login/sessions/" + token;
-            INFOLOG("url",url);
-            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
-
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
-
-            struct curl_slist* headers = nullptr;
-            headers = curl_slist_append(headers, "accept: application/json");
-            std::string runtimeGuidHeader = "x-runtime-guid: " + token;
-            headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
-            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-            std::string response;
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-            CURLcode res1 = curl_easy_perform(curl);
-            if (res1 != CURLE_OK) {
-                ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
-            } else {
-                INFOLOG("------->",response);
-                Json::Value root;
-                Json::Reader reader;
-                if(reader.parse(response, root))
-                {
-                    std::string tokenExpiration = root["expiresInS"].asString();
-                    if(!tokenExpiration.empty())
-                        ret = false;
-                }
-                else
-                {
-                    ERRORLOG("Invalid json resopense",response);
-                }
-                
-            }
-            curl_slist_free_all(headers);
-            curl_easy_reset(curl);
-        }
-        return ret;
     }
 
     const char** STORAGE_METHOD_CALL nx_spl::S3StorageFactory::findAvailable() const
@@ -406,7 +113,7 @@ namespace nx_spl
         }
         else
         {
-            if(isLicenseAvailable())
+            if(ServerManager::getInstance()->isLicenseAvailable())
             {
                 return "s3";
             }
@@ -425,13 +132,6 @@ namespace nx_spl
             ERROR_LIST(STR_ERROR);
         }
         return "";
-    }
-
-    bool nx_spl::S3StorageFactory::isLicenseAvailable() 
-    {
-        DEBUGLOG("S3StorageFactory::isLicenseAvailable");
-        std::lock_guard<std::mutex> lock(m_mutex);
-        return g_licenseAvailable;
     }
 
     void *nx_spl::S3StorageFactory::queryInterface(const nxpl::NX_GUID &interfaceID)
@@ -547,7 +247,7 @@ namespace nx_spl
     {
         INFOLOG("S3Storage::isAvailable");
         std::lock_guard<std::mutex> lock(m_mutex);
-        if(S3StorageFactory::isLicenseAvailable() == false)
+        if(ServerManager::getInstance()->isLicenseAvailable() == false)
         {
             ERRORLOG("Invalid License!!");
             m_available = false;
@@ -1323,7 +1023,7 @@ extern "C"
     {
         nx_spl::aux::DailyLogger::Initialize();
         INFOLOG("======================================create  NXPlugin Instance================================");
-        
+        ServerManager::getInstance();
         return new nx_spl::S3StorageFactory();
     }
 }

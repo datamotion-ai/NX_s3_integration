@@ -15,6 +15,7 @@
 #include <iostream>
 #include <cstdio>
 #include <filesystem>
+#include <json/json.h>
 
 #if defined(__linux__) || defined(__APPLE__)
 #   include <sys/stat.h>
