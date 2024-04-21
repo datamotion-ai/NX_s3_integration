@@ -5,7 +5,7 @@ ServerManager* ServerManager::m_serverPtr = nullptr;
 
 ServerManager *ServerManager::getInstance()
 {
-    INFOLOG("ServerManager::getInstance");
+    DEBUGLOG("ServerManager::getInstance");
     if(m_serverPtr == nullptr)
     {
         m_serverPtr = new ServerManager();
@@ -16,7 +16,7 @@ ServerManager *ServerManager::getInstance()
 
 void ServerManager::deleteInstance()
 {
-    INFOLOG("ServerManager::deleteInstance");
+    DEBUGLOG("ServerManager::deleteInstance");
     if(m_serverPtr != nullptr)
     {
         m_serverPtr->m_timer.stop();
@@ -27,24 +27,78 @@ void ServerManager::deleteInstance()
 
 bool ServerManager::isLicenseAvailable() const
 {
-    INFOLOG("ServerManager::isLicenseAvailable");
+    DEBUGLOG("ServerManager::isLicenseAvailable");
     return m_licenceAvailable;
 }
 
-ServerManager::ServerManager():m_licenceAvailable(false)
+bool ServerManager::isServerIntialize() const
 {
-    INFOLOG("ServerManager::m_licenceAvailable");
+    DEBUGLOG("ServerManager::isServerIntialize");
+    return m_serverInitialize;
+}
+
+void ServerManager::postEvent(std::string msg, std::string source)
+{
+    DEBUGLOG("ServerManager::ServerManager",msg);
+    CURL* curl = curl_easy_init();
+    if (!curl) 
+    {
+        ERRORLOG("Error initializing libcurl.");
+    }
+    else
+    {
+        std::string url = "https://" + m_host +  "/api/createEvent";
+        DEBUGLOG("url",url);
+        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
+
+        struct curl_slist* headers = nullptr;
+        headers = curl_slist_append(headers, "accept: application/json");
+        headers = curl_slist_append(headers, "Content-Type: application/json");
+        std::string runtimeGuidHeader = "x-runtime-guid: " + m_token;
+        headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+        std::string data = "{\"source\":\""+ source + "\",\"description\":\"" + msg + "\"}";
+        DEBUGLOG("data",data);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
+
+        std::string response;
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nx_spl::aux::WriteCallback);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+        CURLcode res1 = curl_easy_perform(curl);
+        if (res1 != CURLE_OK) 
+        {
+            ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
+        } 
+        curl_slist_free_all(headers);
+        curl_easy_reset(curl);
+    }
+}
+
+ServerManager::ServerManager():
+m_licenceAvailable(false),
+m_eventActive(false),
+m_serverInitialize(false)
+{
+    DEBUGLOG("ServerManager::ServerManager");
 }
 
 ServerManager::~ServerManager()
 {
-    INFOLOG("ServerManager::~ServerManager");
+    DEBUGLOG("ServerManager::~ServerManager");
 
 }
 
 bool ServerManager::loadServerCredential()
 {
-    INFOLOG("ServerManager::loadServerCredential");
+    DEBUGLOG("ServerManager::loadServerCredential");
     bool ret = false;
     Json::Reader reader;
     std::ifstream jsonFile(LICENSE_CONFIG_FILE);
@@ -78,7 +132,7 @@ bool ServerManager::loadServerCredential()
 
 bool ServerManager::createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string &token) const
 {
-    INFOLOG("ServerManager::createSession",host,usr,pswd);
+    DEBUGLOG("ServerManager::createSession",host,usr,pswd);
     bool ret = false;
     CURL* curl = curl_easy_init();
     if (!curl) 
@@ -88,7 +142,7 @@ bool ServerManager::createSession(const std::string &host, const std::string &us
     else
     {
         std::string url = "https://" + host +  "/rest/v2/login/sessions";
-        INFOLOG("url",url);
+        DEBUGLOG("url",url);
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
 
@@ -103,7 +157,7 @@ bool ServerManager::createSession(const std::string &host, const std::string &us
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
         std::string data = "{\"username\":\""+ usr + "\",\"password\":\"" + pswd + "\",\"setCookie\":true}";
-        INFOLOG("data",data);
+        DEBUGLOG("data",data);
         curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
 
         std::string response;
@@ -139,7 +193,7 @@ bool ServerManager::createSession(const std::string &host, const std::string &us
 
 bool ServerManager::isSessionExpired(const std::string &host, std::string &token) const
 {
-    INFOLOG("S3StorageFactory::isSessionExpired",host,token);
+    DEBUGLOG("S3StorageFactory::isSessionExpired",host,token);
     bool ret = true;
     CURL* curl = curl_easy_init();
     if (!curl) 
@@ -149,7 +203,7 @@ bool ServerManager::isSessionExpired(const std::string &host, std::string &token
     else
     {
         std::string url = "https://" + host +  "/rest/v2/login/sessions/" + token;
-        INFOLOG("url",url);
+        DEBUGLOG("url",url);
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
 
@@ -195,7 +249,7 @@ bool ServerManager::isSessionExpired(const std::string &host, std::string &token
 
 bool ServerManager::verifyLicense()
 {
-    INFOLOG("ServerManager::verifyLicense");
+    DEBUGLOG("ServerManager::verifyLicense");
     bool licenseAvailable = false;
     CURL* curl = curl_easy_init();
     if (!curl) 
@@ -328,7 +382,8 @@ bool ServerManager::verifyLicense()
 
 void ServerManager::updateLicenseDetail()
 {
-    INFOLOG("ServerManager::updateLicenseDetail");
+    DEBUGLOG("ServerManager::updateLicenseDetail");
+    m_serverInitialize = true;
     if(loadServerCredential())
     {
         if(m_token.empty() || isSessionExpired(m_host, m_token))
@@ -353,6 +408,7 @@ void ServerManager::updateLicenseDetail()
             {
                 m_licenceAvailable = false;
                 m_timer.setInterval(ONE_MINUTE);
+                ServerManager::getInstance()->postEvent("License Expired!!,Update License Details!!","");
             }
         }
         else

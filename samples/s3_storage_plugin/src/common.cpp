@@ -1,6 +1,8 @@
 #include "common.hpp"
 
 bool g_bucketSizeNeedUpdate = true;
+std::string g_userAgent;
+
 std::vector<std::string> g_removeFileList;
 
 namespace nx_spl
@@ -57,7 +59,7 @@ namespace nx_spl
         }
 
         // set error code to initial state (NoError generally if storage is available)
-        error::code_t checkECode(int *checked, const int avail, error::code_t toSet)
+        error::code_t checkECode(int *checked, const bool avail, error::code_t toSet)
         {
             if (checked)
                 *checked = error::NoError;

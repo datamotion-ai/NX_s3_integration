@@ -1,6 +1,7 @@
 #include <json/json.h>
 #include "s3Client.h"
 #include "common.hpp"
+#include "ServerManager.h"
 #define SYNC_FILE "Test.txt"
 
 s3Client::s3Client(const std::string  &url, const std::string  &accessKey, const std::string  &secreatKey, const std::string  &bucket):
@@ -8,7 +9,8 @@ m_url(url),
 m_accessKey(accessKey),
 m_secretKey(secreatKey),
 m_bucket(bucket),
-m_running(false)
+m_running(false),
+m_storageAvailable(false)
 {
     INFOLOG("s3Client",url,accessKey,secreatKey,bucket);
 }
@@ -30,45 +32,24 @@ bool s3Client::establishS3Connection()
     Aws::Client::ClientConfiguration clientConfig;
     clientConfig.scheme = Aws::Http::Scheme::HTTPS;
     clientConfig.endpointOverride = Aws::String(m_url);
+    clientConfig.userAgent = g_userAgent;
 
     Aws::Auth::AWSCredentials credentials;
     credentials.SetAWSAccessKeyId(m_accessKey);
     credentials.SetAWSSecretKey(m_secretKey);
     
     #if defined (_WIN32)
-
-        NTSTATUS(WINAPI *RtlGetVersion)(LPOSVERSIONINFOEXW);
-
-        OSVERSIONINFOEXW osInfo;
-
-        *(FARPROC*)&RtlGetVersion = GetProcAddress(GetModuleHandleA("ntdll"), "RtlGetVersion");
-
-        if (NULL != RtlGetVersion)
-        {
-            osInfo.dwOSVersionInfoSize = sizeof(osInfo);
-            RtlGetVersion(&osInfo);
-        }
-
-        clientConfig.userAgent = "Wasabi/1.0 NX Wasabi_storage_sdk/"  + std::string(VERSION) 
-        + " Windows/" + std::to_string(osInfo.dwMajorVersion) + "." 
-        + std::to_string( osInfo.dwMinorVersion) + "." + std::to_string( osInfo.dwBuildNumber);
-        INFOLOG("OS Version",clientConfig.userAgent);
-
         m_impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
     #else
-        struct utsname unameData;
-        uname(&unameData);
-        clientConfig.userAgent = "Wasabi_storage_sdk/"  + std::string(VERSION) + " LINUX/" + unameData.release;
-        INFOLOG("OS Version",clientConfig.userAgent);
         m_impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
     #endif
 
     if(m_impl.get() != nullptr)
     {
+        bool bucketFound = false;
         auto outcome = m_impl->ListBuckets();
         if (outcome.IsSuccess()) 
         {
-            bool bucketFound = false;
             auto objects = outcome.GetResult().GetBuckets();
             for (const auto& object : objects) 
             {
@@ -84,15 +65,26 @@ bool s3Client::establishS3Connection()
             }
             else
             {
-                INFOLOG("SuccessFully establish s3 connection with host: ");
-                m_running = true;
-                uploadThread = std::thread(&s3Client::fileUploadThread, this);
-                return true;
+                bucketFound = true;
             }
         }
         else
         {
             ERRORLOG("Failed to list bucket lists!! connection failed!!");
+            ServerManager::getInstance()->postEvent(outcome.GetError().GetMessage(),m_url + "/" + m_bucket);
+        }
+
+        if(!ServerManager::getInstance()->isServerIntialize())
+        {
+            bucketFound = true;
+        }
+        
+        if(bucketFound == true)
+        {
+            INFOLOG("SuccessFully establish s3 connection with host: ");
+            m_running = true;
+            uploadThread = std::thread(&s3Client::fileUploadThread, this);
+            return true;
         }
     }
     else
@@ -108,7 +100,7 @@ bool s3Client::remoteUriExists(const std::string& uri)
     std::lock_guard<std::mutex> lock(m_mutex);
     DEBUGLOG(uri,m_bucket);
     bool found = false;
-    if(m_impl.get() != nullptr)
+    if(m_storageAvailable && (m_impl.get() != nullptr))
     {
         Aws::S3::Model::HeadObjectRequest request;
         request.WithBucket(m_bucket).WithKey(uri);
@@ -126,7 +118,7 @@ bool s3Client::remoteDirExists(const std::string &uri)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     bool found = false;
-    if(m_impl.get() != nullptr)
+    if(m_storageAvailable && (m_impl.get() != nullptr))
     {
         std::string dir;
         if(uri[0] == '/')
@@ -211,6 +203,7 @@ uint64_t s3Client::remoteFolderSize(const std::string& uri)
     else 
     {
         ERRORLOG("Remote dir not exists",uri,m_bucket,outcome.GetError().GetMessage().c_str());
+        ServerManager::getInstance()->postEvent(outcome.GetError().GetMessage(),m_url + "/" + m_bucket);
         throw nx_spl::aux::BadUrlException("Remote dir not exists");
     }
     return totalSize;
@@ -221,7 +214,7 @@ uint64_t s3Client::getRemoteFileSize(const std::string& uri)
     std::lock_guard<std::mutex> lock(m_mutex);
     DEBUGLOG(uri,m_bucket);
     uint64_t size = 0;
-    if(m_impl.get() != nullptr)
+    if(m_storageAvailable && (m_impl.get() != nullptr))
     {
         Aws::S3::Model::HeadObjectRequest request;
         request.SetBucket(m_bucket);
@@ -326,7 +319,7 @@ bool s3Client::renameFile(const char *oldUrl, const char *newUrl)
     std::lock_guard<std::mutex> lock(m_mutex);
     DEBUGLOG("renameFile",oldUrl,newUrl);
     bool ret = false;
-    if(m_impl.get() != nullptr)
+    if(m_storageAvailable && (m_impl.get() != nullptr))
     {
         Aws::S3::Model::CopyObjectRequest copyRequest;
         copyRequest.WithBucket(m_bucket)
@@ -366,7 +359,7 @@ bool s3Client::removeUrl(const char *url)
     std::lock_guard<std::mutex> lock(m_mutex);
     DEBUGLOG("removeUrl",url);
     bool ret = false;
-    if(m_impl.get() != nullptr)
+    if(m_storageAvailable && (m_impl.get() != nullptr))
     {
         Aws::S3::Model::DeleteObjectRequest request;
         request.WithBucket(m_bucket)
@@ -418,7 +411,7 @@ bool s3Client::addFileToUploadInQueue(const char *url)
                             std::ofstream outputFile(file.fullPath);
                             if (!outputFile.is_open()) {
                                 ERRORLOG("Error opening JSON file:",file.fullPath);
-                                return 1;
+                                return false;
                             }
 
                             Json::StyledStreamWriter writer;
@@ -448,7 +441,7 @@ bool s3Client::uploadFile(const char *url, std::string fileName)
     std::lock_guard<std::mutex> lock(m_mutex);
     DEBUGLOG("uploadFile",url,fileName);
     bool ret = false;
-    if(m_impl.get() != nullptr)
+    if(m_storageAvailable && (m_impl.get() != nullptr))
     {
         std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
                                                                                 fileName.c_str(),
@@ -489,7 +482,7 @@ bool s3Client::downloadFile(const char *url, std::string fileName)
     std::lock_guard<std::mutex> lock(m_mutex);
     INFOLOG("downloadFile",url,fileName);
     bool ret = false;
-    if(m_impl.get() != nullptr)
+    if(m_storageAvailable && (m_impl.get() != nullptr))
     {
         Aws::S3::Model::GetObjectRequest request;
         request.SetBucket(m_bucket);
@@ -528,26 +521,7 @@ bool s3Client::downloadFile(const char *url, std::string fileName)
 bool s3Client::isAvailable()
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    bool available = false;
-    if(m_impl.get() != nullptr)
-    {
-        Aws::S3::Model::PutObjectRequest request;
-        request.SetBucket(m_bucket);
-        request.SetKey(SYNC_FILE);
-        auto input_data = Aws::MakeShared<Aws::StringStream>("StringStream");
-        *input_data << "Test";
-        request.SetBody(input_data);
-        Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
-        if (!outcome.IsSuccess()) 
-        {
-            ERRORLOG("Unable to upload file:",SYNC_FILE,outcome.GetError().GetMessage().c_str());
-        }
-        else 
-        {
-            available = true;
-        }
-    }
-    return available;
+    return m_storageAvailable;
 }
 
 void s3Client::stopThread()
@@ -575,6 +549,7 @@ bool s3Client::createBucket()
         if (!outcome.IsSuccess()) 
         {
             ERRORLOG("Failed to create bucket",m_bucket,outcome.GetError().GetMessage());
+            ServerManager::getInstance()->postEvent(outcome.GetError().GetMessage(),m_url + "/" + m_bucket);
         }
         else 
         {
@@ -591,11 +566,12 @@ bool s3Client::createBucket()
 
 void s3Client::fileUploadThread()
 {
-    DEBUGLOG("fileUploadThread");
+    DEBUGLOG("s3Client::fileUploadThread");
     this->updateFileUploadList();
     while (m_running) 
     {
-        if(m_fileToUpload.empty())
+        keepAliveActivator();
+        if(!isAvailable() || m_fileToUpload.empty())
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(ONE_MINUTE));
             continue;
@@ -607,9 +583,9 @@ void s3Client::fileUploadThread()
             m_fileToUpload.pop_back();
         }
         nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(std::string(fileToUpload));
+        bool fileUploaded = false;
         if(fs::exists(file.fullPath))
         {
-            bool fileUploaded = false;
             if(m_impl.get() != nullptr)
             {
                 std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
@@ -653,72 +629,95 @@ void s3Client::fileUploadThread()
                 std::lock_guard<std::mutex> lock(m_mutex);
                 m_fileToUpload.push_back(fileToUpload);
             }
-            else
-            {
-                nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
-                std::ifstream inputFile(file.fullPath);
-                if (inputFile.is_open())
-                {
-                    Json::Value root;
-                    Json::Reader reader;
-                    if (reader.parse(inputFile, root)) 
-                    {
-                        if(root.isArray())
-                        {
-                            for (auto& jsonObject : root) 
-                            {
-                                if((jsonObject["host"].asString() == m_url)  && 
-                                    (jsonObject["bucket"].asString() == m_bucket) && jsonObject["files"].isArray())
-                                {
-                                    Json::Value& filesArray = jsonObject["files"];
-
-                                    for (Json::ArrayIndex i = 0; i < filesArray.size(); ++i) 
-                                    {
-                                        if (filesArray[i].asString() == fileToUpload) {
-                                            filesArray.removeIndex(i, &filesArray[i]);
-                                            break;
-                                        }
-                                    }
-
-                                    std::ofstream outputFile(file.fullPath);
-                                    if (!outputFile.is_open()) {
-                                        ERRORLOG("Error opening JSON file:",file.fullPath);
-                                    }
-                                    else
-                                    {
-                                        Json::StyledStreamWriter writer;
-                                        writer.write(outputFile, root);
-                                        outputFile.close();
-                                    }
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    else
-                    {
-                        ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
-                    }
-                    inputFile.close();
-                }
-                else
-                {
-                    ERRORLOG("Error opening JSON file:",file.fullPath);
-                }
-            }
         }
         else
         {
            ERRORLOG("File do not exist to uplaod!!",fileToUpload);
+           fileUploaded = true;
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(ONE_SECOND));
+        if(fileUploaded)
+        {
+            nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+            std::ifstream inputFile(file.fullPath);
+            if (inputFile.is_open())
+            {
+                Json::Value root;
+                Json::Reader reader;
+                if (reader.parse(inputFile, root)) 
+                {
+                    if(root.isArray())
+                    {
+                        for (auto& jsonObject : root) 
+                        {
+                            if((jsonObject["host"].asString() == m_url)  && 
+                                (jsonObject["bucket"].asString() == m_bucket) && jsonObject["files"].isArray())
+                            {
+                                Json::Value& filesArray = jsonObject["files"];
+
+                                for (Json::ArrayIndex i = 0; i < filesArray.size(); ++i) 
+                                {
+                                    if (filesArray[i].asString() == fileToUpload) {
+                                        filesArray.removeIndex(i, &filesArray[i]);
+                                        break;
+                                    }
+                                }
+
+                                std::ofstream outputFile(file.fullPath);
+                                if (!outputFile.is_open()) {
+                                    ERRORLOG("Error opening JSON file:",file.fullPath);
+                                }
+                                else
+                                {
+                                    Json::StyledStreamWriter writer;
+                                    writer.write(outputFile, root);
+                                    outputFile.close();
+                                }
+                                break;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
+                }
+                inputFile.close();
+            }
+            else
+            {
+                ERRORLOG("Error opening JSON file:",file.fullPath);
+            }
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }
 
 void s3Client::updateFileUploadList()
 {
+    DEBUGLOG("s3Client::updateFileUploadList");
     m_fileToUpload.clear();
     nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+    if(!fs::exists(file.fullPath))
+    {
+        Json::Value root(Json::arrayValue);
+        Json::Value jsonObject;
+        jsonObject["host"] = m_url;
+        jsonObject["bucket"] = m_bucket;
+        Json::Value filesArray(Json::arrayValue);
+        jsonObject["files"] = filesArray;
+        root.append(jsonObject);
+        std::ofstream outputFile(file.fullPath);
+        if (!outputFile.is_open()) {
+            ERRORLOG("Error opening JSON file:",file.fullPath);
+            return;
+        }
+        else
+        {
+            Json::StyledStreamWriter writer;
+            writer.write(outputFile, root);
+            outputFile.close();
+        }
+    }
     std::ifstream inputFile(file.fullPath);
     if (inputFile.is_open())
     {
@@ -790,6 +789,32 @@ void s3Client::updateFileUploadList()
             Json::StyledStreamWriter writer;
             writer.write(outputFile, root);
             outputFile.close();
+        }
+    }
+}
+
+void s3Client::keepAliveActivator()
+{
+    DEBUGLOG("s3Client::keepAliveActivator");
+    std::lock_guard<std::mutex> lock(m_mutex);
+    m_storageAvailable = false;
+    if(m_impl.get() != nullptr)
+    {
+        Aws::S3::Model::PutObjectRequest request;
+        request.SetBucket(m_bucket);
+        request.SetKey(SYNC_FILE);
+        auto input_data = Aws::MakeShared<Aws::StringStream>("StringStream");
+        *input_data << "Test";
+        request.SetBody(input_data);
+        Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
+        if (!outcome.IsSuccess()) 
+        {
+            ERRORLOG("Unable to upload file:",SYNC_FILE,outcome.GetError().GetMessage().c_str());
+            ServerManager::getInstance()->postEvent(outcome.GetError().GetMessage() + "\n Local Storage Enabled!!",m_url + "/" + m_bucket);
+        }
+        else 
+        {
+            m_storageAvailable = true;
         }
     }
 }

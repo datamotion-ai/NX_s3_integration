@@ -32,6 +32,30 @@ namespace nx_spl
         Aws::InitAPI(m_options);
         std::srand((unsigned int) time(0));
         m_clearMemoryTimer.start(this, &S3StorageFactory::clearMemory,FIVE_MINUTE);
+
+    #if defined (_WIN32)
+
+        NTSTATUS(WINAPI *RtlGetVersion)(LPOSVERSIONINFOEXW);
+        OSVERSIONINFOEXW osInfo;
+
+        *(FARPROC*)&RtlGetVersion = GetProcAddress(GetModuleHandleA("ntdll"), "RtlGetVersion");
+
+        if (NULL != RtlGetVersion)
+        {
+            osInfo.dwOSVersionInfoSize = sizeof(osInfo);
+            RtlGetVersion(&osInfo);
+        }
+        g_userAgent = "Wasabi/1.0 NX Wasabi_storage_sdk/"  + std::string(VERSION) 
+        + " Windows/" + std::to_string(osInfo.dwMajorVersion) + "." 
+        + std::to_string( osInfo.dwMinorVersion) + "." + std::to_string( osInfo.dwBuildNumber);
+        INFOLOG("OS Version",g_userAgent);
+
+    #else
+        struct utsname unameData;
+        uname(&unameData);
+        g_userAgent = "Wasabi/1.0 NX Wasabi_storage_sdk/"  +  std::string(VERSION) + " LINUX/" + unameData.release;
+        INFOLOG("OS Version",g_userAgent);
+    #endif
     }
 
     nx_spl::S3StorageFactory::~S3StorageFactory()
@@ -251,6 +275,7 @@ namespace nx_spl
         {
             ERRORLOG("Invalid License!!");
             m_available = false;
+            ServerManager::getInstance()->postEvent("License Expired!!,Update License Details!!","");
             return 0;
         }
 
@@ -260,27 +285,25 @@ namespace nx_spl
             if(m_available == false)
             {
                 INFOLOG("Connection lost");
-                m_impl.get()->stopThread();
-                m_available = m_impl.get()->establishS3Connection();
+                // m_impl.get()->stopThread();
+                // m_available = m_impl.get()->establishS3Connection();
             }
         }
         else
         {
             ERRORLOG("implPtrType is nullptr!");
+            m_available = false;
         }
         INFOLOG("Storage Available",m_available);
-        if(m_available)
-            return 1;
-        else
-            return 0;
+        return 1;
     }
 
     IODevice *STORAGE_METHOD_CALL nx_spl::S3Storage::open(const char *uri, int flags, int *ecode) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        DEBUGLOG("S3Storage::open",uri,flags);
-        // if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
-        //     return nullptr;
+        INFOLOG("S3Storage::open",uri,flags);
+        if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
+            return nullptr;
         *ecode = error::NoError;
         IODevice *ret = nullptr;
         try
@@ -292,14 +315,11 @@ namespace nx_spl
             !fs::exists(file.fullPath.c_str()) && 
             (m_impl.get() != nullptr))
             {
-                if (!m_impl.get()->downloadFile(uri,file.fullPath)) 
-                {
-                    INFOLOG("Download failed:",uri);
-                }
+                m_impl.get()->downloadFile(uri,file.fullPath);
             }
             if((flags & io::ReadOnly) && !fs::exists(file.fullPath) && (file.fullPath.find(".mkv") != std::string::npos))
             {
-                *ecode = error::UnknownError;
+                *ecode = error::UrlNotExists;
                 return ret;
             }
 
@@ -318,7 +338,7 @@ namespace nx_spl
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::getFreeSpace");
-         if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+        if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
             return 0;
 
         if (ecode)
@@ -350,7 +370,7 @@ namespace nx_spl
     uint64_t STORAGE_METHOD_CALL nx_spl::S3Storage::getTotalSpace(int *ecode) const
     {
         DEBUGLOG("S3Storage::getTotalSpace");
-         if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+        if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
             return 0;
         if (ecode)
             *ecode = error::NoError;
@@ -372,9 +392,7 @@ namespace nx_spl
     {
         DEBUGLOG("S3Storage::removeFile",url,m_bucket);
         std::lock_guard<std::mutex> lock(m_mutex);
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
-            return;
-        
+
         *ecode = error::NoError;
 
         std::string filePath(url);
@@ -418,7 +436,7 @@ namespace nx_spl
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::removeDir",url,m_bucket);
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+        if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
             return;
         
         if(m_impl.get() != nullptr)
@@ -447,9 +465,9 @@ namespace nx_spl
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::renameFile",oldUrl,newUrl);
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+        if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
             return;
-        
+
         if(m_impl.get() != nullptr)
         {
             aux::FileNameAndPath oldFile = aux::localUniqueFilePath(std::string(oldUrl));
@@ -468,6 +486,7 @@ namespace nx_spl
                     uint64_t size = aux::getFileSize(newFile.fullPath.c_str());
                     m_freebucketSize = m_freebucketSize + size;
                     INFOLOG("added file to uploaded",newUrl,m_freebucketSize);
+                    *ecode = error::NoError;
                 }
             }
             else
@@ -488,7 +507,7 @@ namespace nx_spl
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::getFileIterator",dirUrl);
-        if((aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError))
+        if((aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError))
             return nullptr;
             
         if(m_impl.get() == nullptr)
@@ -512,7 +531,7 @@ namespace nx_spl
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::fileExists",url);
 
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+        if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
             return 0;
 
         if(m_impl.get() != nullptr)
@@ -539,7 +558,7 @@ namespace nx_spl
                 }
                 else
                 {
-                    INFOLOG("added File download que!!",file.fullPath);
+                    INFOLOG("File downloaded!!",file.fullPath);
                     return 1;
                 }
             }
@@ -556,7 +575,7 @@ namespace nx_spl
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::dirExists",url);
-        if((aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError) )
+        if((aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError) )
             return 0;
 
         if(m_impl.get() != nullptr)
@@ -585,18 +604,17 @@ namespace nx_spl
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::fileSize");
-
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+        if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
             return 0;
-        
         std::string filePath(url);
         aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
 
+        uint64_t size = 0;
         if(fs::exists(file.fullPath.c_str()))
         {
-            uint64_t size = aux::getFileSize(file.fullPath.c_str());
-            return size;
+            size = aux::getFileSize(file.fullPath.c_str());
         }
+        return size;
     }
 
     void *nx_spl::S3Storage::queryInterface(const nxpl::NX_GUID &interfaceID)
@@ -714,7 +732,7 @@ namespace nx_spl
                 *ecode = error::UrlNotExists;
             return 0;
         } 
-        DEBUGLOG("S3IODevice::write:",m_localfile.fullPath,ftell(m_file),m_pos,size);
+        INFOLOG("S3IODevice::write:",m_localfile.fullPath,ftell(m_file),m_pos,size);
 
         if (ecode)
             *ecode = error::NoError;
@@ -722,7 +740,7 @@ namespace nx_spl
         int writeSize = fwrite(src, 1, size, m_file);
         if(writeSize < size)
         {
-            ERRORLOG("Failed to write into file",writeSize,size);
+            ERRORLOG("Failed to write into file",writeSize,size,m_localfile.fullPath);
             if (ecode)
                 *ecode = error::NotEnoughSpace;
              return writeSize;
@@ -885,14 +903,7 @@ namespace nx_spl
             m_altered = false;
             if(m_impl.get() != nullptr)
             {
-                if (!m_impl.get()->uploadFile(m_uri.c_str(),m_localfile.fullPath)) 
-                {
-                    ERRORLOG("Unable to upload file:",m_uri);
-                }
-                else 
-                {
-                    INFOLOG("Successfully uploaded file:",m_localfile.fullPath,m_uri);
-                }
+                m_impl.get()->uploadFile(m_uri.c_str(),m_localfile.fullPath);
             }
             else
             {
@@ -903,7 +914,7 @@ namespace nx_spl
 
     S3IODevice::~S3IODevice()
     {
-        DEBUGLOG("S3IODevice::~S3IODevice",m_localfile.fullPath);
+        INFOLOG("S3IODevice::~S3IODevice",m_localfile.fullPath);
         if (m_file != NULL)
             fclose(m_file);
 

@@ -49,6 +49,7 @@
 
 extern bool g_bucketSizeNeedUpdate;
 extern std::vector<std::string> g_removeFileList;
+extern std::string g_userAgent;
 
 #define ERROR_LIST(APPLY) \
 APPLY(nx_spl::error::EndOfFile) \
@@ -297,7 +298,7 @@ namespace nx_spl
 
         size_t headerCallback(char* buffer, size_t size, size_t nitems, std::string* output);
 
-        error::code_t checkECode (int *checked, const int avail, error::code_t toSet = error::NoError);
+        error::code_t checkECode (int *checked, const bool avail, error::code_t toSet = error::NoError);
 
         void dirFromUri(const std::string   &uri, std::string *dir,  std::string *file);
 

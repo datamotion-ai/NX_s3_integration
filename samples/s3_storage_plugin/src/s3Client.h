@@ -54,9 +54,11 @@ class s3Client
     bool createBucket();
     void fileUploadThread();
     void updateFileUploadList();
+    void keepAliveActivator();
 
     private:
     bool m_running;
+    bool m_storageAvailable;
     s3PtrType   m_impl;
     std::mutex  m_mutex;
     std::string m_url;

@@ -10,6 +10,8 @@ class ServerManager
     static ServerManager* getInstance();
     static void deleteInstance();
     bool isLicenseAvailable() const;
+    bool isServerIntialize() const;
+    void postEvent(std::string msg, std::string source);
 
     private:
     ServerManager();
@@ -23,6 +25,8 @@ class ServerManager
     private:
     static ServerManager* m_serverPtr;
     bool m_licenceAvailable;
+    bool m_serverInitialize;
+    bool m_eventActive;
     std::string m_host;
     std::string m_user;
     std::string m_password;
