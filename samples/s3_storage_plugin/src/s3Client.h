@@ -49,6 +49,7 @@ class s3Client
     bool downloadFile(const char *url,std::string fileName);
     bool isAvailable();
     void stopThread();
+    bool isFileInUploadList(std::string file)const;
 
     private:
     bool createBucket();
@@ -60,7 +61,7 @@ class s3Client
     bool m_running;
     bool m_storageAvailable;
     s3PtrType   m_impl;
-    std::mutex  m_mutex;
+    mutable std::mutex  m_mutex;
     std::string m_url;
     std::string m_accessKey;
     std::string m_secretKey;

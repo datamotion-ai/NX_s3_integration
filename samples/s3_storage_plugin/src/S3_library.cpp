@@ -63,9 +63,9 @@ namespace nx_spl
         INFOLOG("S3StorageFactory::~S3StorageFactory");
         Aws::ShutdownAPI(m_options);
         m_clearMemoryTimer.stop();
-        
-        nx_spl::aux::DailyLogger::Dinitialize();
+        clearMemory();
         ServerManager::deleteInstance();
+        nx_spl::aux::DailyLogger::Dinitialize();
     }
 
     void nx_spl::S3StorageFactory::clearMemory()
@@ -732,7 +732,7 @@ namespace nx_spl
                 *ecode = error::UrlNotExists;
             return 0;
         } 
-        INFOLOG("S3IODevice::write:",m_localfile.fullPath,ftell(m_file),m_pos,size);
+        DEBUGLOG("S3IODevice::write:",m_localfile.fullPath,ftell(m_file),m_pos,size);
 
         if (ecode)
             *ecode = error::NoError;
@@ -926,7 +926,7 @@ namespace nx_spl
             remove(m_localfile.fullPath.c_str());
         }
 
-        if((m_mode & io::ReadOnly) && (m_localfile.fullPath.find(".nxdb") == std::string::npos))
+        if((m_mode & io::ReadOnly) && (m_localfile.fullPath.find(".nxdb") == std::string::npos) && !m_impl->isFileInUploadList(m_uri))
         {
             if (fs::exists(m_localfile.fullPath.c_str())) 
             {

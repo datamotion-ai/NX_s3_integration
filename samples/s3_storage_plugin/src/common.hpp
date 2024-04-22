@@ -37,7 +37,7 @@
 #endif
 
 #define S3_CONFIG_FILE "s3.config"
-#define S3_DEFAULT_TOTAL_SPACE 100LL * 1024 * 1024 * 1024 //100GB
+#define S3_DEFAULT_TOTAL_SPACE 1024LL * 1024 * 1024 * 1024 //100GB
 
 #define LICENSE_CONFIG_FILE "license.config"
 #define FILE_UPLOAD_JSON "s3UploadList.json"

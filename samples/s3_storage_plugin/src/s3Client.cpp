@@ -385,6 +385,7 @@ bool s3Client::removeUrl(const char *url)
 
 bool s3Client::addFileToUploadInQueue(const char *url)
 {
+    DEBUGLOG("s3Client::addFileToUploadInQueue",url);
     std::lock_guard<std::mutex> lock(m_mutex);
     auto it = std::find(m_fileToUpload.begin(), m_fileToUpload.end(), url);
     if (it == m_fileToUpload.end()) 
@@ -534,6 +535,16 @@ void s3Client::stopThread()
     }
     m_running = false;
     INFOLOG("stopThread Done");
+}
+
+bool s3Client::isFileInUploadList(std::string file) const
+{
+    DEBUGLOG("s3Client::addFileToUploadInQueue",file);
+    std::lock_guard<std::mutex> lock(m_mutex);
+    bool ret = false;
+    auto it = std::find(m_fileToUpload.begin(), m_fileToUpload.end(), file);
+    ret = it != m_fileToUpload.end();
+    return ret;
 }
 
 bool s3Client::createBucket()
@@ -688,7 +699,7 @@ void s3Client::fileUploadThread()
                 ERRORLOG("Error opening JSON file:",file.fullPath);
             }
         }
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 }
 
