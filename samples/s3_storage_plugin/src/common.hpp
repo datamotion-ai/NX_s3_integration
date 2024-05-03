@@ -37,7 +37,10 @@
 #endif
 
 #define S3_CONFIG_FILE "s3.config"
-#define S3_DEFAULT_TOTAL_SPACE 1024LL * 1024 * 1024 * 1024 //100GB
+
+#define DEFAULT_200_MB  200 * 1024 * 1024 //200 MB
+#define DEFAULT_1_GB  1024 * 1024 * 1024 //1 GB
+#define S3_DEFAULT_TOTAL_SPACE 100LL * DEFAULT_1_GB //100 GB
 
 #define LICENSE_CONFIG_FILE "license.config"
 #define FILE_UPLOAD_JSON "s3UploadList.json"
@@ -292,6 +295,8 @@ namespace nx_spl
             } // Url::fromString()
         }; // struct Url
 
+        std::string localUniqueFolder();
+
         FileNameAndPath localUniqueFilePath(const std::string& fileName);
 
         size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output); 
@@ -303,6 +308,8 @@ namespace nx_spl
         void dirFromUri(const std::string   &uri, std::string *dir,  std::string *file);
 
         long long getFileSize(const char *fname);
+
+        uintmax_t getFolderSize(const fs::path& folder_path); 
 
     }
 }

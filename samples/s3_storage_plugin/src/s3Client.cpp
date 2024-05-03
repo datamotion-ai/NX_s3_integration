@@ -2,6 +2,8 @@
 #include "s3Client.h"
 #include "common.hpp"
 #include "ServerManager.h"
+#include "ClearMemoryManager.h"
+
 #define SYNC_FILE "Test.txt"
 
 s3Client::s3Client(const std::string  &url, const std::string  &accessKey, const std::string  &secreatKey, const std::string  &bucket):
@@ -10,6 +12,7 @@ m_accessKey(accessKey),
 m_secretKey(secreatKey),
 m_bucket(bucket),
 m_running(false),
+m_isMutexUnlocked(false),
 m_storageAvailable(false)
 {
     INFOLOG("s3Client",url,accessKey,secreatKey,bucket);
@@ -84,6 +87,7 @@ bool s3Client::establishS3Connection()
             INFOLOG("SuccessFully establish s3 connection with host: ");
             m_running = true;
             uploadThread = std::thread(&s3Client::fileUploadThread, this);
+            m_keepAliveTimer.start(this,&s3Client::keepAliveActivator,ONE_MINUTE);
             return true;
         }
     }
@@ -387,53 +391,100 @@ bool s3Client::addFileToUploadInQueue(const char *url)
 {
     DEBUGLOG("s3Client::addFileToUploadInQueue",url);
     std::lock_guard<std::mutex> lock(m_mutex);
-    auto it = std::find(m_fileToUpload.begin(), m_fileToUpload.end(), url);
-    if (it == m_fileToUpload.end()) 
+    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+    if(!fs::exists(file.fullPath))
     {
-        m_fileToUpload.push_back(std::string(url));
-        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
-        std::ifstream inputFile(file.fullPath);
-        if (inputFile.is_open())
-        {
-            Json::Value root;
-            Json::Reader reader;
-            if (reader.parse(inputFile, root)) 
-            {
-                if(root.isArray())
-                {
-                    for (auto& jsonObject : root) 
-                    {
-                        if((jsonObject["host"].asString() == m_url)  && 
-                            (jsonObject["bucket"].asString() == m_bucket))
-                        {
-                            Json::Value& filesArray = jsonObject["files"];
-                            filesArray.append(std::string(url));
-
-                            std::ofstream outputFile(file.fullPath);
-                            if (!outputFile.is_open()) {
-                                ERRORLOG("Error opening JSON file:",file.fullPath);
-                                return false;
-                            }
-
-                            Json::StyledStreamWriter writer;
-                            writer.write(outputFile, root);
-                            outputFile.close();
-                            break;
-                        }
-                    }
-                }
-            }
-            else
-            {
-                ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
-            }
-            inputFile.close();
+        Json::Value root(Json::arrayValue);
+        Json::Value jsonObject;
+        jsonObject["host"] = m_url;
+        jsonObject["bucket"] = m_bucket;
+        Json::Value filesArray(Json::arrayValue);
+        jsonObject["files"] = filesArray;
+        root.append(jsonObject);
+        std::ofstream outputFile(file.fullPath);
+        if (!outputFile.is_open()) {
+            ERRORLOG("Error opening JSON file:",file.fullPath);
+            return false;
         }
         else
         {
-            ERRORLOG("Error opening JSON file:",file.fullPath);
+            Json::StyledStreamWriter writer;
+            writer.write(outputFile, root);
+            outputFile.close();
         }
     }
+    std::ifstream inputFile(file.fullPath);
+    if (inputFile.is_open())
+    {
+        Json::Value root;
+        Json::Reader reader;
+        if (reader.parse(inputFile, root)) 
+        {
+            if(root.isArray())
+            {
+                bool hostFound = false;
+                for (auto& jsonObject : root) 
+                {
+                    if((jsonObject["host"].asString() == m_url)  && 
+                        (jsonObject["bucket"].asString() == m_bucket))
+                    {
+                        Json::Value& filesArray = jsonObject["files"];
+                        filesArray.append(std::string(url));
+
+                        std::ofstream outputFile(file.fullPath);
+                        if (!outputFile.is_open()) {
+                            ERRORLOG("Error opening JSON file:",file.fullPath);
+                            return false;
+                        }
+
+                        Json::StyledStreamWriter writer;
+                        writer.write(outputFile, root);
+                        outputFile.close();
+                        hostFound = true;
+                        break;
+                    }
+                }
+
+                if(hostFound == false)
+                {
+                    Json::Value jsonObject;
+                    jsonObject["host"] = m_url;
+                    jsonObject["bucket"] = m_bucket;
+                    Json::Value filesArray(Json::arrayValue);
+                    filesArray.append(std::string(url));
+                    jsonObject["files"] = filesArray;
+                    root.append(jsonObject);
+                    std::ofstream outputFile(file.fullPath);
+                    if (!outputFile.is_open()) {
+                        ERRORLOG("Error opening JSON file:",file.fullPath);
+                        return false;
+                    }
+                    else
+                    {
+                        Json::StyledStreamWriter writer;
+                        writer.write(outputFile, root);
+                        outputFile.close();
+                    }
+                }
+            }
+        }
+        else
+        {
+            ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
+            return false;
+        }
+        inputFile.close();
+    }
+    else
+    {
+        ERRORLOG("Error opening JSON file:",file.fullPath);
+        return false;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_waitmutex);
+        m_isMutexUnlocked = true;
+    }
+    condition.notify_all();
     return true;
 }
 
@@ -481,7 +532,7 @@ bool s3Client::uploadFile(const char *url, std::string fileName)
 bool s3Client::downloadFile(const char *url, std::string fileName)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    INFOLOG("downloadFile",url,fileName);
+    DEBUGLOG("downloadFile",url,fileName);
     bool ret = false;
     if(m_storageAvailable && (m_impl.get() != nullptr))
     {
@@ -529,21 +580,63 @@ void s3Client::stopThread()
 {
     INFOLOG("stopThread");
     m_running = false;
+    {
+        std::lock_guard<std::mutex> lock(m_waitmutex);
+        m_isMutexUnlocked = true;
+    }
+    condition.notify_all();
     if (uploadThread.joinable()) 
     {
         uploadThread.join();
     }
-    m_running = false;
+    m_keepAliveTimer.stop();
     INFOLOG("stopThread Done");
 }
 
-bool s3Client::isFileInUploadList(std::string file) const
+bool s3Client::isFileInUploadList(std::string fileName) const
 {
     DEBUGLOG("s3Client::addFileToUploadInQueue",file);
     std::lock_guard<std::mutex> lock(m_mutex);
     bool ret = false;
-    auto it = std::find(m_fileToUpload.begin(), m_fileToUpload.end(), file);
-    ret = it != m_fileToUpload.end();
+    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+    std::ifstream inputFile(file.fullPath);
+    if (inputFile.is_open())
+    {
+        Json::Value root;
+        Json::Reader reader;
+        if (reader.parse(inputFile, root)) 
+        {
+            if(root.isArray())
+            {
+                for (auto& jsonObject : root) 
+                {
+                    if((jsonObject["host"].asString() == m_url)  && 
+                        (jsonObject["bucket"].asString() == m_bucket) && jsonObject["files"].isArray())
+                    {
+                        Json::Value& filesArray = jsonObject["files"];
+                        for(auto& jsonValue: filesArray)
+                        {
+                            if(jsonValue.asString() == fileName)
+                            {
+                                ret = true;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        else
+        {
+            ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
+        }
+        inputFile.close();
+    }
+    else
+    {
+        ERRORLOG("Error opening JSON file:",file.fullPath);
+    }
     return ret;
 }
 
@@ -578,22 +671,28 @@ bool s3Client::createBucket()
 void s3Client::fileUploadThread()
 {
     DEBUGLOG("s3Client::fileUploadThread");
-    this->updateFileUploadList();
     while (m_running) 
     {
-        keepAliveActivator();
-        if(!isAvailable() || m_fileToUpload.empty())
+        std::string fileToUpload = getNextFileToUpload();
+        if(!isAvailable() || fileToUpload.empty())
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(ONE_MINUTE));
+            {
+                std::lock_guard<std::mutex> lock(m_waitmutex);
+                m_isMutexUnlocked = false;
+            }
+            // std::this_thread::sleep_for(std::chrono::milliseconds(ONE_MINUTE));
+            std::unique_lock<std::mutex> lock(m_waitmutex);
+            condition.wait(lock, [this]{ return m_isMutexUnlocked; });
             continue;
         }
-        std::string fileToUpload;
+        std::string url = fileToUpload;
+        size_t last_underscore_pos = url.find_last_of('_');
+        if (last_underscore_pos != std::string::npos) 
         {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            fileToUpload = m_fileToUpload.back();
-            m_fileToUpload.pop_back();
+            url = url.substr(0, last_underscore_pos);
+            url.append(".mkv");
         }
-        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(std::string(fileToUpload));
+        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(std::string(url));
         bool fileUploaded = false;
         if(fs::exists(file.fullPath))
         {
@@ -625,7 +724,7 @@ void s3Client::fileUploadThread()
                         if (remove(file.fullPath.c_str()) != 0) 
                         {
                             ERRORLOG("Failed to remove file:",file.fullPath.c_str());
-                            g_removeFileList.push_back(file.fullPath);
+                            ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
                         }
                         fileUploaded = true;
                     }
@@ -635,11 +734,6 @@ void s3Client::fileUploadThread()
             {
                 ERRORLOG("implPtrType is nullptr!");
             }
-            if(!fileUploaded)
-            {
-                std::lock_guard<std::mutex> lock(m_mutex);
-                m_fileToUpload.push_back(fileToUpload);
-            }
         }
         else
         {
@@ -648,158 +742,7 @@ void s3Client::fileUploadThread()
         }
         if(fileUploaded)
         {
-            nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
-            std::ifstream inputFile(file.fullPath);
-            if (inputFile.is_open())
-            {
-                Json::Value root;
-                Json::Reader reader;
-                if (reader.parse(inputFile, root)) 
-                {
-                    if(root.isArray())
-                    {
-                        for (auto& jsonObject : root) 
-                        {
-                            if((jsonObject["host"].asString() == m_url)  && 
-                                (jsonObject["bucket"].asString() == m_bucket) && jsonObject["files"].isArray())
-                            {
-                                Json::Value& filesArray = jsonObject["files"];
-
-                                for (Json::ArrayIndex i = 0; i < filesArray.size(); ++i) 
-                                {
-                                    if (filesArray[i].asString() == fileToUpload) {
-                                        filesArray.removeIndex(i, &filesArray[i]);
-                                        break;
-                                    }
-                                }
-
-                                std::ofstream outputFile(file.fullPath);
-                                if (!outputFile.is_open()) {
-                                    ERRORLOG("Error opening JSON file:",file.fullPath);
-                                }
-                                else
-                                {
-                                    Json::StyledStreamWriter writer;
-                                    writer.write(outputFile, root);
-                                    outputFile.close();
-                                }
-                                break;
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
-                }
-                inputFile.close();
-            }
-            else
-            {
-                ERRORLOG("Error opening JSON file:",file.fullPath);
-            }
-        }
-        // std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-}
-
-void s3Client::updateFileUploadList()
-{
-    DEBUGLOG("s3Client::updateFileUploadList");
-    m_fileToUpload.clear();
-    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
-    if(!fs::exists(file.fullPath))
-    {
-        Json::Value root(Json::arrayValue);
-        Json::Value jsonObject;
-        jsonObject["host"] = m_url;
-        jsonObject["bucket"] = m_bucket;
-        Json::Value filesArray(Json::arrayValue);
-        jsonObject["files"] = filesArray;
-        root.append(jsonObject);
-        std::ofstream outputFile(file.fullPath);
-        if (!outputFile.is_open()) {
-            ERRORLOG("Error opening JSON file:",file.fullPath);
-            return;
-        }
-        else
-        {
-            Json::StyledStreamWriter writer;
-            writer.write(outputFile, root);
-            outputFile.close();
-        }
-    }
-    std::ifstream inputFile(file.fullPath);
-    if (inputFile.is_open())
-    {
-        Json::Value root;
-        Json::Reader reader;
-        if (reader.parse(inputFile, root)) 
-        {
-            if(root.isArray())
-            {
-                bool hostFound = false;
-                for (auto& jsonObject : root) 
-                {
-                    if((jsonObject["host"].asString() == m_url)  && 
-                        (jsonObject["bucket"].asString() == m_bucket) && jsonObject["files"].isArray())
-                    {
-                        hostFound = true;
-                        Json::Value& filesArray = jsonObject["files"];
-
-                        for (Json::ArrayIndex i = 0; i < filesArray.size(); ++i) 
-                        {
-                            m_fileToUpload.push_back(filesArray[i].asString());
-                        }
-                        break;
-                    }
-                }
-                if(hostFound == false)
-                {
-                    Json::Value jsonObject;
-                    jsonObject["host"] = m_url;
-                    jsonObject["bucket"] = m_bucket;
-                    Json::Value filesArray(Json::arrayValue);
-                    jsonObject["files"] = filesArray;
-                    root.append(jsonObject);
-                    std::ofstream outputFile(file.fullPath);
-                    if (!outputFile.is_open()) {
-                        ERRORLOG("Error opening JSON file:",file.fullPath);
-                    }
-                    else
-                    {
-                        Json::StyledStreamWriter writer;
-                        writer.write(outputFile, root);
-                        outputFile.close();
-                    }
-                }
-            }
-        }
-        else
-        {
-            ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
-        }
-        inputFile.close();
-    }
-    else
-    {
-        ERRORLOG("Error opening JSON file:",file.fullPath);
-        Json::Value root(Json::arrayValue);
-        Json::Value jsonObject;
-        jsonObject["host"] = m_url;
-        jsonObject["bucket"] = m_bucket;
-        Json::Value filesArray(Json::arrayValue);
-        jsonObject["files"] = filesArray;
-        root.append(jsonObject);
-        std::ofstream outputFile(file.fullPath);
-        if (!outputFile.is_open()) {
-            ERRORLOG("Error opening JSON file:",file.fullPath);
-        }
-        else
-        {
-            Json::StyledStreamWriter writer;
-            writer.write(outputFile, root);
-            outputFile.close();
+            removeFileFromUploadList(fileToUpload);
         }
     }
 }
@@ -826,6 +769,103 @@ void s3Client::keepAliveActivator()
         else 
         {
             m_storageAvailable = true;
+            {
+                std::lock_guard<std::mutex> lock(m_waitmutex);
+                m_isMutexUnlocked = true;
+            }
+            condition.notify_all();
         }
+    }
+}
+
+std::string s3Client::getNextFileToUpload()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DEBUGLOG("s3Client::getNextFileToUpload");
+    std::string fileName;
+    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+    std::ifstream inputFile(file.fullPath);
+    if (inputFile.is_open())
+    {
+        Json::Value root;
+        Json::Reader reader;
+        if (reader.parse(inputFile, root)) 
+        {
+            if(root.isArray())
+            {
+                for (auto& jsonObject : root) 
+                {
+                    if((jsonObject["host"].asString() == m_url)  && 
+                        (jsonObject["bucket"].asString() == m_bucket) && jsonObject["files"].isArray())
+                    {
+                        Json::Value& filesArray = jsonObject["files"];
+                        if(filesArray.empty() == false)
+                        {
+                            fileName = filesArray[0].asString();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        else
+        {
+            ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
+        }
+        inputFile.close();
+    }
+    else
+    {
+        ERRORLOG("Error opening JSON file:",file.fullPath);
+    }
+    return fileName;
+}
+
+void s3Client::removeFileFromUploadList(std::string fileName)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DEBUGLOG("s3Client::removeFileFromUploadList");
+    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+    std::ifstream inputFile(file.fullPath);
+    if (inputFile.is_open())
+    {
+        Json::Value root;
+        Json::Reader reader;
+        if (reader.parse(inputFile, root)) 
+        {
+            if(root.isArray())
+            {
+                for (auto& jsonObject : root) 
+                {
+                    if((jsonObject["host"].asString() == m_url)  && 
+                        (jsonObject["bucket"].asString() == m_bucket) && jsonObject["files"].isArray())
+                    {
+                        Json::Value& filesArray = jsonObject["files"];
+                        filesArray.removeIndex(0, &filesArray[0]);
+
+                        std::ofstream outputFile(file.fullPath);
+                        if (!outputFile.is_open()) {
+                            ERRORLOG("Error opening JSON file:",file.fullPath);
+                        }
+                        else
+                        {
+                            Json::StyledStreamWriter writer;
+                            writer.write(outputFile, root);
+                            outputFile.close();
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+        else
+        {
+            ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
+        }
+        inputFile.close();
+    }
+    else
+    {
+        ERRORLOG("Error opening JSON file:",file.fullPath);
     }
 }

@@ -11,6 +11,7 @@
 
 #include <mutex>
 #include <vector>
+#include <condition_variable>
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
@@ -27,6 +28,7 @@
 
 #include "daily_loger.hpp"
 #include "common.hpp"
+#include "timer.h"
 
 typedef std::shared_ptr<Aws::S3::S3Client> s3PtrType;
 
@@ -54,14 +56,18 @@ class s3Client
     private:
     bool createBucket();
     void fileUploadThread();
-    void updateFileUploadList();
     void keepAliveActivator();
+    std::string getNextFileToUpload();
+    void removeFileFromUploadList(std::string file);
 
     private:
-    bool m_running;
-    bool m_storageAvailable;
+    bool        m_running;
+    bool        m_storageAvailable;
     s3PtrType   m_impl;
     mutable std::mutex  m_mutex;
+    mutable std::mutex  m_waitmutex;
+    bool        m_isMutexUnlocked;
+    std::condition_variable condition;
     std::string m_url;
     std::string m_accessKey;
     std::string m_secretKey;
@@ -69,6 +75,7 @@ class s3Client
     uint64_t    m_space;
     std::vector<std::string> m_fileToUpload;
     std::thread uploadThread;
+    Timer       m_keepAliveTimer;
 };
 
 #endif //S3_CLIENT_H

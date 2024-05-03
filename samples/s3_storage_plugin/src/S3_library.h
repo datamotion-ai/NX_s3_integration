@@ -223,11 +223,9 @@ namespace nx_spl
 
     private:
         ~S3StorageFactory();
-        void clearMemory();
     private:
         Aws::SDKOptions m_options;
         static std::mutex  m_mutex;
-        Timer m_clearMemoryTimer;
     }; // class S3StorageFactory
 
 }

@@ -3,20 +3,15 @@
 bool g_bucketSizeNeedUpdate = true;
 std::string g_userAgent;
 
-std::vector<std::string> g_removeFileList;
-
 namespace nx_spl
 {
     namespace aux
     { 
-        /**
-         * Generates a pseudo-random file name and a file path to the OS TMP directory + the generated name.
-         * \param fileName If set it is appended to the result file name.
-         */
-        FileNameAndPath localUniqueFilePath(const std::string& fileName)
+
+        std::string localUniqueFolder()
         {
             /* First, get a system tmp path*/
-            std::string tmpFolder;
+            std::string tmpFolder ;
             #if defined (_WIN32)
                 char buf[MAX_PATH + 1];
                 DWORD result = GetTempPathA(sizeof(buf), buf);
@@ -49,12 +44,22 @@ namespace nx_spl
                     ERRORLOG("Failed to create folder:",e.what());
                 }
             }
+            tmpFolder += "/Nx Storage";
+            return tmpFolder;
+        }
+        /**
+         * Generates a pseudo-random file name and a file path to the OS TMP directory + the generated name.
+         * \param fileName If set it is appended to the result file name.
+         */
+        FileNameAndPath localUniqueFilePath(const std::string& fileName)
+        {
+            std::string tmpFolder = localUniqueFolder();
             /* Now, when the base path is found, generate pseudo random bytes for a file name. */
             std::string tempFile = fileName;
             std::replace(tempFile.begin(), tempFile.end(), '/', '_');
             FileNameAndPath nameAndPath;
             nameAndPath.name = tempFile;
-            nameAndPath.fullPath = tmpFolder + "/Nx Storage/" + nameAndPath.name;
+            nameAndPath.fullPath = tmpFolder + "/" + nameAndPath.name;
             return nameAndPath;
         }
 
@@ -146,6 +151,19 @@ namespace nx_spl
                 return -1;
             return st.st_size;
         #endif
+        }
+
+        uintmax_t getFolderSize(const fs::path &folder_path)
+        {
+            uintmax_t size = 0;
+            for (const auto& entry : fs::recursive_directory_iterator(folder_path)) 
+            {
+                if (fs::is_regular_file(entry)) 
+                {
+                    size += fs::file_size(entry);
+                }
+            }
+            return size;
         }
     }
 }
