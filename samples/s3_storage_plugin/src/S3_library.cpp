@@ -548,11 +548,17 @@ namespace nx_spl
 
             if(filePath.find(".nxdb") == std::string::npos)
             {
-                size_t last_underscore_pos = filePath.find_last_of('_');
-                if (last_underscore_pos != std::string::npos) 
+                size_t last_slase_pos = filePath.find_last_of('/');
+                if (last_slase_pos != std::string::npos) 
                 {
-                    filePath = filePath.substr(0, last_underscore_pos);
-                    filePath.append(".mkv");
+                    std::string tempFileName = filePath.substr(last_slase_pos+1, filePath.length());
+                    size_t last_underscore_pos = tempFileName.find_last_of('_');
+                    if (last_underscore_pos != std::string::npos) 
+                    {
+                        last_underscore_pos = filePath.find_last_of('_');
+                        filePath = filePath.substr(0, last_underscore_pos);
+                        filePath.append(".mkv");
+                    }
                 }
             }
 
@@ -719,11 +725,17 @@ namespace nx_spl
                 std::string file = m_uri;
                 if((file.find(".nxdb") == std::string::npos) && (file.find("info.txt") == std::string::npos) )
                 {
-                    size_t last_underscore_pos = file.find_last_of('_');
-                    if (last_underscore_pos != std::string::npos) 
+                    size_t last_slase_pos = file.find_last_of('/');
+                    if (last_slase_pos != std::string::npos) 
                     {
-                        file = file.substr(0, last_underscore_pos);
-                        file.append(".mkv");
+                        std::string tempFileName = file.substr(last_slase_pos+1, file.length());
+                        size_t last_underscore_pos = tempFileName.find_last_of('_');
+                        if (last_underscore_pos != std::string::npos) 
+                        {
+                            last_underscore_pos = file.find_last_of('_');
+                            file = file.substr(0, last_underscore_pos);
+                            file.append(".mkv");
+                        }
                     }
                 }
                 m_localfile = aux::localUniqueFilePath( file);
