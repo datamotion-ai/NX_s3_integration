@@ -262,14 +262,21 @@ namespace nx_spl
             return 0;
         }
 
+        uintmax_t localFolderSize = aux::getFolderSize(aux::localUniqueFolder());
+        if(localFolderSize > DEFAULT_1_GB)
+        {
+            ERRORLOG("local folder full:",localFolderSize);
+            ServerManager::getInstance()->postEvent("No Space Available in Local Folder!!, Recording stop!!","");
+            m_available = false;
+            return 0;
+        }
+
         if(m_impl.get() != nullptr)
         {
             m_available = m_impl.get()->isAvailable();
             if(m_available == false)
             {
                 INFOLOG("Connection lost");
-                // m_impl.get()->stopThread();
-                // m_available = m_impl.get()->establishS3Connection();
             }
         }
         else
@@ -325,7 +332,7 @@ namespace nx_spl
                     if(localFolderSize > DEFAULT_1_GB)
                     {
                         ERRORLOG("local folder full:",localFolderSize);
-                        ServerManager::getInstance()->postEvent("No Space Avaialble in Local Folder!!, Recording stop!!","");
+                        ServerManager::getInstance()->postEvent("No Space Available in Local Folder!!, Recording stop!!","");
                         *ecode = error::StorageUnavailable;
                         return ret;
                     }
@@ -590,7 +597,7 @@ namespace nx_spl
                 else
                 {
                     ERRORLOG("local folder full:",localFolderSize);
-                    ServerManager::getInstance()->postEvent("No Space Avaialble in Local Folder!!, Recording stop!!","");
+                    ServerManager::getInstance()->postEvent("No Space Available in Local Folder!!, Recording stop!!","");
                     *ecode = error::StorageUnavailable;
                     return 0;
                 }
