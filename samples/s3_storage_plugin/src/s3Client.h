@@ -64,6 +64,7 @@ class s3Client
     bool        m_running;
     bool        m_storageAvailable;
     s3PtrType   m_impl;
+    s3PtrType   m_uploadImpl;
     mutable std::mutex  m_mutex;
     mutable std::mutex  m_waitmutex;
     bool        m_isMutexUnlocked;

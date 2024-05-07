@@ -26,6 +26,10 @@ s3Client::~s3Client()
     {
        m_impl.reset(); 
     }
+    if(m_uploadImpl.get() != nullptr)
+    {
+        m_uploadImpl.reset();
+    }
 }
 
 bool s3Client::establishS3Connection()
@@ -43,11 +47,13 @@ bool s3Client::establishS3Connection()
     
     #if defined (_WIN32)
         m_impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
+        m_uploadImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
     #else
         m_impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
+        m_uploadImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
     #endif
 
-    if(m_impl.get() != nullptr)
+    if((m_impl.get() != nullptr) && (m_uploadImpl.get() != nullptr))
     {
         bool bucketFound = false;
         auto outcome = m_impl->ListBuckets();
@@ -585,7 +591,7 @@ void s3Client::stopThread()
         m_isMutexUnlocked = true;
     }
     condition.notify_all();
-    if (uploadThread.joinable()) 
+    if(uploadThread.joinable()) 
     {
         uploadThread.join();
     }
@@ -696,7 +702,7 @@ void s3Client::fileUploadThread()
         bool fileUploaded = false;
         if(fs::exists(file.fullPath))
         {
-            if(m_impl.get() != nullptr)
+            if(m_uploadImpl.get() != nullptr)
             {
                 std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
                                                                                         file.fullPath.c_str(),
@@ -712,7 +718,7 @@ void s3Client::fileUploadThread()
                     request.SetBucket(m_bucket);
                     request.SetKey(fileToUpload);
                     request.SetBody(inputData);
-                    Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
+                    Aws::S3::Model::PutObjectOutcome outcome = m_uploadImpl->PutObject(request);
                     static_cast<Aws::FStream*>(inputData.get())->close();
                     if (!outcome.IsSuccess()) 
                     {
@@ -751,7 +757,6 @@ void s3Client::keepAliveActivator()
 {
     DEBUGLOG("s3Client::keepAliveActivator");
     std::lock_guard<std::mutex> lock(m_mutex);
-    m_storageAvailable = false;
     if(m_impl.get() != nullptr)
     {
         Aws::S3::Model::PutObjectRequest request;
@@ -765,15 +770,19 @@ void s3Client::keepAliveActivator()
         {
             ERRORLOG("Unable to upload file:",SYNC_FILE,outcome.GetError().GetMessage().c_str());
             ServerManager::getInstance()->postEvent(outcome.GetError().GetMessage() + "\n Local Storage Enabled!!",m_url + "/" + m_bucket);
+            m_storageAvailable = false;
         }
         else 
         {
-            m_storageAvailable = true;
+            if(m_storageAvailable == false)
             {
-                std::lock_guard<std::mutex> lock(m_waitmutex);
-                m_isMutexUnlocked = true;
+                m_storageAvailable = true;
+                {
+                    std::lock_guard<std::mutex> lock(m_waitmutex);
+                    m_isMutexUnlocked = true;
+                }
+                condition.notify_all();
             }
-            condition.notify_all();
         }
     }
 }

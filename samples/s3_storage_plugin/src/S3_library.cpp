@@ -300,21 +300,36 @@ namespace nx_spl
             {
                 m_impl.get()->downloadFile(uri,file.fullPath);
             }
-            if((flags & io::ReadOnly) && (filePath.find(".mkv") != std::string::npos))
+            
+            if(filePath.find(".mkv") != std::string::npos)
             {
-                size_t last_underscore_pos = filePath.find_last_of('_');
-                if (last_underscore_pos != std::string::npos) 
+                if(flags & io::ReadOnly)
                 {
-                    filePath = filePath.substr(0, last_underscore_pos);
-                    filePath.append(".mkv");
+                    size_t last_underscore_pos = filePath.find_last_of('_');
+                    if (last_underscore_pos != std::string::npos) 
+                    {
+                        filePath = filePath.substr(0, last_underscore_pos);
+                        filePath.append(".mkv");
+                    }
+                    aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
+                    if(!fs::exists(file.fullPath))
+                    {
+                        *ecode = error::UrlNotExists;
+                        return ret;
+                    }
+                    ClearMemoryManager::getInstance()->deleteFileFromRemoveList(file.fullPath);
                 }
-                aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
-                if(!fs::exists(file.fullPath))
+                else
                 {
-                    *ecode = error::UrlNotExists;
-                    return ret;
+                    uintmax_t localFolderSize = aux::getFolderSize(aux::localUniqueFolder());
+                    if(localFolderSize > DEFAULT_1_GB)
+                    {
+                        ERRORLOG("local folder full:",localFolderSize);
+                        ServerManager::getInstance()->postEvent("No Space Avaialble in Local Folder!!, Recording stop!!","");
+                        *ecode = error::StorageUnavailable;
+                        return ret;
+                    }
                 }
-                ClearMemoryManager::getInstance()->deleteFileFromRemoveList(file.fullPath);
             }
 
             ret = new S3IODevice( uri, flags,m_impl);
@@ -570,7 +585,7 @@ namespace nx_spl
                 {
                     ERRORLOG("local folder full:",localFolderSize);
                     ServerManager::getInstance()->postEvent("No Space Avaialble in Local Folder!!, Recording stop!!","");
-                    *ecode = error::UrlNotExists;
+                    *ecode = error::StorageUnavailable;
                     return 0;
                 }
             }
@@ -696,17 +711,7 @@ namespace nx_spl
                 }
                 else
                 {
-                    uintmax_t localFolderSize = aux::getFolderSize(aux::localUniqueFolder());
-                    if(localFolderSize <= DEFAULT_1_GB)
-                    {
-                         m_file = fopen(m_localfile.fullPath.c_str(), "w+b");
-                    }
-                    else
-                    {
-                        ERRORLOG("local folder full:",localFolderSize);
-                        ServerManager::getInstance()->postEvent("No Space Avaialble in Local Folder!!, Recording stop!!","");
-                        throw aux::InternalErrorException("local folder is full");
-                    }
+                    m_file = fopen(m_localfile.fullPath.c_str(), "w+b");
                 }
             }
             else if(mode & io::ReadOnly)
