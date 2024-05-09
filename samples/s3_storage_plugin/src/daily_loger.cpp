@@ -1,5 +1,3 @@
-#pragma once
-
 #include "daily_loger.hpp"
 
 nx_spl::aux::DailyLogger::LogPriority nx_spl::aux::DailyLogger::m_verbosity = nx_spl::aux::DailyLogger::LogPriority::DebugP;

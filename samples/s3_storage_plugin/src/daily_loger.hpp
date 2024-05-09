@@ -1,19 +1,7 @@
-#pragma once
+#ifndef _DAILY_LOGGER_H_
+#define _DAILY_LOGGER_H_
 
-#include <vector>
-#include <string>
-#include <memory>
-#include <stdexcept>
-#include <stdint.h>
-#include <mutex>
-#include <fstream>
-#include <ctime>
-#include <sstream>
-#include <filesystem>
-#include <iostream>
-#include <mutex>
-
-namespace fs = std::filesystem;
+#include "common.hpp"
 
 #define DEBUGLOG(...) ""
 //#define INFOLOG(...) ""
@@ -106,3 +94,5 @@ namespace nx_spl
         };
     }
 }
+
+#endif //_DAILY_LOGGER_H_

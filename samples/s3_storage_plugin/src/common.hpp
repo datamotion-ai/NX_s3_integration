@@ -14,8 +14,11 @@
 #include <cstdlib>
 #include <iostream>
 #include <cstdio>
-#include <filesystem>
 #include <json/json.h>
+#include <vector>
+#include <memory>
+#include <stdint.h>
+#include <mutex>
 
 #if defined(__linux__) || defined(__APPLE__)
 #   include <sys/stat.h>
@@ -25,8 +28,19 @@
 #   include <winternl.h>
 #endif
 
+#if __has_include(<filesystem>)
+  #include <filesystem>
+  namespace fs = std::filesystem;
+#elif __has_include(<experimental/filesystem>)
+  #include <experimental/filesystem> 
+  namespace fs = std::experimental::filesystem;
+#else
+  error "Missing the <filesystem> header."
+#endif
+
 #include "storage/third_party_storage.h"
 #include "daily_loger.hpp"
+
 
 #define VERSION "beta-1.0.4"
 

@@ -731,6 +731,7 @@ void s3Client::fileUploadThread()
                         {
                             ERRORLOG("Failed to remove file:",file.fullPath.c_str());
                             ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
+                            INFOLOG("==============================>0");
                         }
                         fileUploaded = true;
                     }
@@ -748,7 +749,9 @@ void s3Client::fileUploadThread()
         }
         if(fileUploaded)
         {
+            INFOLOG("==============================>1");
             removeFileFromUploadList(fileToUpload);
+            INFOLOG("==============================>2");
         }
     }
 }
@@ -833,7 +836,7 @@ std::string s3Client::getNextFileToUpload()
 void s3Client::removeFileFromUploadList(std::string fileName)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    DEBUGLOG("s3Client::removeFileFromUploadList");
+    INFOLOG("s3Client::removeFileFromUploadList",fileName);
     nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
     std::ifstream inputFile(file.fullPath);
     if (inputFile.is_open())
@@ -842,25 +845,31 @@ void s3Client::removeFileFromUploadList(std::string fileName)
         Json::Reader reader;
         if (reader.parse(inputFile, root)) 
         {
+            INFOLOG("==============================>1");
             if(root.isArray())
             {
                 for (auto& jsonObject : root) 
                 {
                     if((jsonObject["host"].asString() == m_url)  && 
-                        (jsonObject["bucket"].asString() == m_bucket) && jsonObject["files"].isArray())
+                        (jsonObject["bucket"].asString() == m_bucket) && 
+                        jsonObject["files"].isArray())
                     {
                         Json::Value& filesArray = jsonObject["files"];
-                        filesArray.removeIndex(0, &filesArray[0]);
-
-                        std::ofstream outputFile(file.fullPath);
-                        if (!outputFile.is_open()) {
-                            ERRORLOG("Error opening JSON file:",file.fullPath);
-                        }
-                        else
+                        INFOLOG("==============================>2");
+                        if(filesArray[0].asString() == fileName)
                         {
-                            Json::StyledStreamWriter writer;
-                            writer.write(outputFile, root);
-                            outputFile.close();
+                            INFOLOG("==============================>3");
+                            filesArray.removeIndex(0, &filesArray[0]);
+                            std::ofstream outputFile(file.fullPath);
+                            if (!outputFile.is_open()) {
+                                ERRORLOG("Error opening JSON file:",file.fullPath);
+                            }
+                            else
+                            {
+                                Json::StyledStreamWriter writer;
+                                writer.write(outputFile, root);
+                                outputFile.close();
+                            }
                         }
                         break;
                     }
@@ -871,7 +880,9 @@ void s3Client::removeFileFromUploadList(std::string fileName)
         {
             ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
         }
+        INFOLOG("==============================>4");
         inputFile.close();
+        INFOLOG("==============================>5");
     }
     else
     {
