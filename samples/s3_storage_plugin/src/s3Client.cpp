@@ -587,7 +587,10 @@ bool s3Client::isAvailable()
 void s3Client::stopThread()
 {
     INFOLOG("stopThread");
-    m_running = false;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_running = false;
+    }
     {
         std::lock_guard<std::mutex> lock(m_waitmutex);
         m_isMutexUnlocked = true;
@@ -680,8 +683,14 @@ bool s3Client::createBucket()
 void s3Client::fileUploadThread()
 {
     DEBUGLOG("s3Client::fileUploadThread");
-    while (m_running) 
+    while (1) 
     {
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if(m_running == false)
+               return;
+        }
+        
         std::string fileToUpload = getNextFileToUpload();
         if(!isAvailable() || fileToUpload.empty())
         {
