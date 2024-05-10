@@ -92,6 +92,7 @@ bool s3Client::establishS3Connection()
         {
             INFOLOG("SuccessFully establish s3 connection with host: ");
             m_running = true;
+            m_storageAvailable = true;
             uploadThread = std::thread(&s3Client::fileUploadThread, this);
             m_keepAliveTimer.start(this,&s3Client::keepAliveActivator,ONE_MINUTE);
             return true;
