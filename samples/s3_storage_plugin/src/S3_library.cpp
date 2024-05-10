@@ -262,15 +262,6 @@ namespace nx_spl
             return 0;
         }
 
-        uintmax_t localFolderSize = aux::getFolderSize(aux::localUniqueFolder());
-        if(localFolderSize > DEFAULT_1_GB)
-        {
-            ERRORLOG("local folder full:",localFolderSize);
-            ServerManager::getInstance()->postEvent("No Space Available in Local Folder!!, Recording stop!!","");
-            m_available = false;
-            return 0;
-        }
-
         if(m_impl.get() != nullptr)
         {
             m_available = m_impl.get()->isAvailable();
@@ -325,17 +316,6 @@ namespace nx_spl
                         return ret;
                     }
                     ClearMemoryManager::getInstance()->deleteFileFromRemoveList(file.fullPath);
-                }
-                else
-                {
-                    uintmax_t localFolderSize = aux::getFolderSize(aux::localUniqueFolder());
-                    if(localFolderSize > DEFAULT_1_GB)
-                    {
-                        ERRORLOG("local folder full:",localFolderSize);
-                        ServerManager::getInstance()->postEvent("No Space Available in Local Folder!!, Recording stop!!","");
-                        *ecode = error::StorageUnavailable;
-                        return ret;
-                    }
                 }
             }
 
@@ -396,9 +376,18 @@ namespace nx_spl
     {
         DEBUGLOG("S3Storage::getCapabilities");
         int ret = 0;
+        uintmax_t localFolderSize = aux::getFolderSize(aux::localUniqueFolder());
+        if(localFolderSize > DEFAULT_1_GB)
+        {
+            ERRORLOG("local folder full:",localFolderSize);
+            ServerManager::getInstance()->postEvent("No Space Available in Local Folder!!, Recording stop!!","");
+        }
+        else
+        {
+            ret |= cap::WriteFile;
+            ret |= cap::ReadFile;
+        }
         ret |= cap::ListFile;
-        ret |= cap::WriteFile;
-        ret |= cap::ReadFile;
         ret |= cap::RemoveFile;
         ret |= cap::DBReady;
         return ret;
@@ -480,7 +469,7 @@ namespace nx_spl
     void STORAGE_METHOD_CALL nx_spl::S3Storage::renameFile(const char *oldUrl, const char *newUrl, int *ecode)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        DEBUGLOG("S3Storage::renameFile",oldUrl,newUrl);
+        INFOLOG("S3Storage::renameFile",oldUrl,newUrl);
         if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
             return;
 
@@ -578,28 +567,17 @@ namespace nx_spl
             }
             else
             {
-                uintmax_t localFolderSize = aux::getFolderSize(aux::localUniqueFolder());
-                if(localFolderSize <= DEFAULT_1_GB)
+                if (!m_impl.get()->downloadFile(url,file.fullPath)) 
                 {
-                    if (!m_impl.get()->downloadFile(url,file.fullPath)) 
-                    {
-                        ERRORLOG("file not found:",file.fullPath);
-                        *ecode = error::UrlNotExists;
-                        return 0;
-                    }
-                    else
-                    {
-                        INFOLOG("File found!!",file.fullPath);
-                        ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
-                        return 1;
-                    }
+                    ERRORLOG("file not found:",file.fullPath);
+                    *ecode = error::UrlNotExists;
+                    return 0;
                 }
                 else
                 {
-                    ERRORLOG("local folder full:",localFolderSize);
-                    ServerManager::getInstance()->postEvent("No Space Available in Local Folder!!, Recording stop!!","");
-                    *ecode = error::StorageUnavailable;
-                    return 0;
+                    INFOLOG("File found!!",file.fullPath);
+                    ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
+                    return 1;
                 }
             }
         }

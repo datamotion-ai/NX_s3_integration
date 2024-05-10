@@ -426,6 +426,7 @@ bool s3Client::addFileToUploadInQueue(const char *url)
         Json::Reader reader;
         if (reader.parse(inputFile, root)) 
         {
+            inputFile.close();
             if(root.isArray())
             {
                 bool hostFound = false;
@@ -612,6 +613,7 @@ bool s3Client::isFileInUploadList(std::string fileName) const
         Json::Reader reader;
         if (reader.parse(inputFile, root)) 
         {
+            inputFile.close();
             if(root.isArray())
             {
                 for (auto& jsonObject : root) 
@@ -803,6 +805,7 @@ std::string s3Client::getNextFileToUpload()
         Json::Reader reader;
         if (reader.parse(inputFile, root)) 
         {
+            inputFile.close();
             if(root.isArray())
             {
                 for (auto& jsonObject : root) 
@@ -845,6 +848,7 @@ void s3Client::removeFileFromUploadList(std::string fileName)
         Json::Reader reader;
         if (reader.parse(inputFile, root)) 
         {
+            inputFile.close();
             INFOLOG("==============================>1");
             if(root.isArray())
             {
