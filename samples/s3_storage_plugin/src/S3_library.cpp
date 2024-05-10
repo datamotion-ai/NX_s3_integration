@@ -173,6 +173,7 @@ namespace nx_spl
 
     nx_spl::S3Storage::S3Storage(const std::string &url) : 
     m_available(false),
+    m_intialized(false),
     m_freebucketSize(S3_DEFAULT_TOTAL_SPACE),
     m_totalSpace(S3_DEFAULT_TOTAL_SPACE)
     {
@@ -340,6 +341,12 @@ namespace nx_spl
         if (ecode)
             *ecode = error::NoError;
         uint64_t totalSize = 0;
+
+        if(m_intialized == false)
+        {
+            m_intialized = true;
+            return m_freebucketSize;
+        }
         
         if(g_bucketSizeNeedUpdate && (m_impl.get() != nullptr))
         {

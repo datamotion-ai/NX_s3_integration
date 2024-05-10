@@ -194,6 +194,7 @@ namespace nx_spl
         uint64_t            m_totalSpace;
         mutable std::mutex  m_mutex;
         mutable bool        m_available;
+        mutable bool        m_intialized;
     }; // class S3storage
 
 
