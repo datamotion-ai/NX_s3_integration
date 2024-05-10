@@ -488,11 +488,11 @@ bool s3Client::addFileToUploadInQueue(const char *url)
         ERRORLOG("Error opening JSON file:",file.fullPath);
         return false;
     }
-    {
-        std::lock_guard<std::mutex> lock(m_waitmutex);
-        m_isMutexUnlocked = true;
-    }
-    condition.notify_all();
+    // {
+    //     std::lock_guard<std::mutex> lock(m_waitmutex);
+    //     m_isMutexUnlocked = true;
+    // }
+    // condition.notify_all();
     return true;
 }
 
@@ -591,11 +591,11 @@ void s3Client::stopThread()
         std::lock_guard<std::mutex> lock(m_mutex);
         m_running = false;
     }
-    {
-        std::lock_guard<std::mutex> lock(m_waitmutex);
-        m_isMutexUnlocked = true;
-    }
-    condition.notify_all();
+    // {
+    //     std::lock_guard<std::mutex> lock(m_waitmutex);
+    //     m_isMutexUnlocked = true;
+    // }
+    // condition.notify_all();
     if(uploadThread.joinable()) 
     {
         uploadThread.join();
@@ -694,13 +694,13 @@ void s3Client::fileUploadThread()
         std::string fileToUpload = getNextFileToUpload();
         if(!isAvailable() || fileToUpload.empty())
         {
-            {
-                std::lock_guard<std::mutex> lock(m_waitmutex);
-                m_isMutexUnlocked = false;
-            }
-            // std::this_thread::sleep_for(std::chrono::milliseconds(ONE_MINUTE));
-            std::unique_lock<std::mutex> lock(m_waitmutex);
-            condition.wait(lock, [this]{ return m_isMutexUnlocked; });
+            // {
+            //     std::lock_guard<std::mutex> lock(m_waitmutex);
+            //     m_isMutexUnlocked = false;
+            // }
+            std::this_thread::sleep_for(std::chrono::milliseconds(ONE_SECOND));
+            // std::unique_lock<std::mutex> lock(m_waitmutex);
+            // condition.wait(lock, [this]{ return m_isMutexUnlocked; });
             continue;
         }
         std::string url = fileToUpload;
@@ -792,11 +792,11 @@ void s3Client::keepAliveActivator()
             if(m_storageAvailable == false)
             {
                 m_storageAvailable = true;
-                {
-                    std::lock_guard<std::mutex> lock(m_waitmutex);
-                    m_isMutexUnlocked = true;
-                }
-                condition.notify_all();
+                // {
+                //     std::lock_guard<std::mutex> lock(m_waitmutex);
+                //     m_isMutexUnlocked = true;
+                // }
+                // condition.notify_all();
             }
         }
     }
