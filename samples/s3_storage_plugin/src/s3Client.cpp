@@ -11,9 +11,14 @@ m_url(url),
 m_accessKey(accessKey),
 m_secretKey(secreatKey),
 m_bucket(bucket),
+m_totalSpaceUpdating(false),
 m_running(false),
-m_isMutexUnlocked(false),
-m_storageAvailable(false)
+m_storageAvailable(false),
+m_reUpdateSpace(false),
+m_impl(nullptr),
+m_uploadImpl(nullptr),
+m_spaceImpl(nullptr),
+m_space(S3_DEFAULT_TOTAL_SPACE)
 {
     INFOLOG("s3Client",url,accessKey,secreatKey,bucket);
 }
@@ -29,6 +34,10 @@ s3Client::~s3Client()
     if(m_uploadImpl.get() != nullptr)
     {
         m_uploadImpl.reset();
+    }
+    if(m_spaceImpl.get() != nullptr)
+    {
+        m_spaceImpl.reset();
     }
 }
 
@@ -48,12 +57,14 @@ bool s3Client::establishS3Connection()
     #if defined (_WIN32)
         m_impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
         m_uploadImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
+        m_spaceImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
     #else
         m_impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
         m_uploadImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
+        m_spaceImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
     #endif
 
-    if((m_impl.get() != nullptr) && (m_uploadImpl.get() != nullptr))
+    if((m_impl.get() != nullptr) && (m_uploadImpl.get() != nullptr) && (m_spaceImpl.get() != nullptr))
     {
         bool bucketFound = false;
         auto outcome = m_impl->ListBuckets();
@@ -167,57 +178,23 @@ bool s3Client::remoteDirExists(const std::string &uri)
     return found;
 }
 
-uint64_t s3Client::remoteFolderSize(const std::string& uri)
+uint64_t s3Client::remoteFolderSize(bool update)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    DEBUGLOG("uri:",uri);
-    if(m_impl.get() == nullptr)
+    DEBUGLOG("s3Client::remoteFolderSize",uri);
+    if((update || m_reUpdateSpace) && !m_totalSpaceUpdating)
     {
-        ERRORLOG("implPtrType is nullptr!");
-        throw std::runtime_error("implPtrType is nullptr!!");
-    }
-
-    if (uri.empty()) 
-    {
-        INFOLOG("empty file name");
-        throw std::runtime_error("empty file name");
-    }
-
-    uint64_t totalSize = 0;
-    Aws::S3::Model::ListObjectsRequest request;
-    request.SetBucket(m_bucket);
-    request.WithPrefix(m_bucket + uri);
-    
-    
-    auto outcome = m_impl->ListObjects(request);
-    if (outcome.IsSuccess()) 
-    {
-        for (const auto& object : outcome.GetResult().GetContents())
+        if(m_storageAvailable) 
         {
-            // Get metadata for each object to get the size
-            Aws::S3::Model::HeadObjectRequest headObjectRequest;
-            headObjectRequest.WithBucket(m_bucket)
-                .WithKey(object.GetKey());
-
-            Aws::S3::Model::HeadObjectOutcome headObjectOutcome = m_impl->HeadObject(headObjectRequest);
-
-            if (headObjectOutcome.IsSuccess())
-            {
-                totalSize += headObjectOutcome.GetResult().GetContentLength();
-            }
-            else
-            {
-                ERRORLOG("Failed to get metadata",object.GetKey());
-            }
+            m_reUpdateSpace = false;
+            spaceThread = std::thread(&s3Client::updateRemoteFolderSize, this);
+        }
+        else
+        {
+            m_reUpdateSpace = true;
         }
     }
-    else 
-    {
-        ERRORLOG("Remote dir not exists",uri,m_bucket,outcome.GetError().GetMessage().c_str());
-        ServerManager::getInstance()->postEvent(outcome.GetError().GetMessage(),m_url + "/" + m_bucket);
-        throw nx_spl::aux::BadUrlException("Remote dir not exists");
-    }
-    return totalSize;
+    return m_space;
 }
 
 uint64_t s3Client::getRemoteFileSize(const std::string& uri)
@@ -379,11 +356,11 @@ bool s3Client::removeUrl(const char *url)
         const auto response = m_impl->DeleteObject(request);
         if (!response.IsSuccess()) 
         {
-            ERRORLOG("Failed to delete directory",url,m_bucket,response.GetError().GetMessage().c_str());
+            ERRORLOG("Failed to delete file",url,m_bucket,response.GetError().GetMessage().c_str());
         }
         else 
         {
-            INFOLOG("deleted directory",url,m_bucket);
+            INFOLOG("deleted file",url,m_bucket);
             ret = true;
         }
     }
@@ -488,11 +465,6 @@ bool s3Client::addFileToUploadInQueue(const char *url)
         ERRORLOG("Error opening JSON file:",file.fullPath);
         return false;
     }
-    // {
-    //     std::lock_guard<std::mutex> lock(m_waitmutex);
-    //     m_isMutexUnlocked = true;
-    // }
-    // condition.notify_all();
     return true;
 }
 
@@ -551,7 +523,7 @@ bool s3Client::downloadFile(const char *url, std::string fileName)
 
         if (!outcome.IsSuccess()) 
         {
-            ERRORLOG("Download failed:",url,m_bucket,outcome.GetError().GetMessage().c_str());
+            ERRORLOG("Download failed:",url,m_bucket,outcome.GetError().GetMessage().c_str(),outcome.GetError().GetResponseCode());
         }
         else 
         {
@@ -591,22 +563,22 @@ void s3Client::stopThread()
         std::lock_guard<std::mutex> lock(m_mutex);
         m_running = false;
     }
-    // {
-    //     std::lock_guard<std::mutex> lock(m_waitmutex);
-    //     m_isMutexUnlocked = true;
-    // }
-    // condition.notify_all();
     if(uploadThread.joinable()) 
     {
         uploadThread.join();
     }
+    if(spaceThread.joinable())
+    {
+        spaceThread.join();
+    }
+    
     m_keepAliveTimer.stop();
     INFOLOG("stopThread Done");
 }
 
 bool s3Client::isFileInUploadList(std::string fileName) const
 {
-    DEBUGLOG("s3Client::addFileToUploadInQueue",file);
+    DEBUGLOG("s3Client::isFileInUploadList",file);
     std::lock_guard<std::mutex> lock(m_mutex);
     bool ret = false;
     nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
@@ -652,6 +624,12 @@ bool s3Client::isFileInUploadList(std::string fileName) const
     return ret;
 }
 
+bool s3Client::isTotalSpaceUpdating()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return m_totalSpaceUpdating;
+}
+
 bool s3Client::createBucket()
 {
     DEBUGLOG("createBucket");
@@ -694,13 +672,7 @@ void s3Client::fileUploadThread()
         std::string fileToUpload = getNextFileToUpload();
         if(!isAvailable() || fileToUpload.empty())
         {
-            // {
-            //     std::lock_guard<std::mutex> lock(m_waitmutex);
-            //     m_isMutexUnlocked = false;
-            // }
             std::this_thread::sleep_for(std::chrono::milliseconds(ONE_SECOND));
-            // std::unique_lock<std::mutex> lock(m_waitmutex);
-            // condition.wait(lock, [this]{ return m_isMutexUnlocked; });
             continue;
         }
         std::string url = fileToUpload;
@@ -743,7 +715,6 @@ void s3Client::fileUploadThread()
                         {
                             ERRORLOG("Failed to remove file:",file.fullPath.c_str());
                             ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
-                            INFOLOG("==============================>0");
                         }
                         fileUploaded = true;
                     }
@@ -761,9 +732,7 @@ void s3Client::fileUploadThread()
         }
         if(fileUploaded)
         {
-            INFOLOG("==============================>1");
             removeFileFromUploadList(fileToUpload);
-            INFOLOG("==============================>2");
         }
     }
 }
@@ -792,14 +761,75 @@ void s3Client::keepAliveActivator()
             if(m_storageAvailable == false)
             {
                 m_storageAvailable = true;
-                // {
-                //     std::lock_guard<std::mutex> lock(m_waitmutex);
-                //     m_isMutexUnlocked = true;
-                // }
-                // condition.notify_all();
             }
         }
     }
+}
+
+void s3Client::updateRemoteFolderSize()
+{
+    INFOLOG("Calculating Free space");
+
+    if(m_spaceImpl.get() == nullptr)
+    {
+        ERRORLOG("m_spaceImpl is nullptr!");
+        return;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_totalSpaceUpdating = true;
+    }
+
+    std::string url("/");
+    uint64_t totalSize = 0;
+    Aws::S3::Model::ListObjectsRequest request;
+    request.SetBucket(m_bucket);
+    request.WithPrefix(m_bucket + url);
+    
+    auto outcome = m_spaceImpl->ListObjects(request);
+    if (outcome.IsSuccess()) 
+    {
+        for (const auto& object : outcome.GetResult().GetContents())
+        {
+            if(m_running == false)
+                return;
+
+            Aws::S3::Model::HeadObjectRequest headObjectRequest;
+            headObjectRequest.WithBucket(m_bucket).WithKey(object.GetKey());
+
+            Aws::S3::Model::HeadObjectOutcome headObjectOutcome = m_spaceImpl->HeadObject(headObjectRequest);
+
+            if (headObjectOutcome.IsSuccess())
+            {
+                totalSize += headObjectOutcome.GetResult().GetContentLength();
+            }
+            else
+            {
+                ERRORLOG("Failed to get metadata",object.GetKey(),headObjectOutcome.GetError().GetResponseCode());
+                if(headObjectOutcome.GetError().GetResponseCode() == Aws::Http::HttpResponseCode::SERVICE_UNAVAILABLE)
+                {
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        m_reUpdateSpace = true;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    else 
+    {
+        ERRORLOG("Remote dir not exists",m_bucket,outcome.GetError().GetMessage().c_str());
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_space = totalSize;
+        m_totalSpaceUpdating = false;
+    }
+
+    INFOLOG("Calculating Free space Done..");
 }
 
 std::string s3Client::getNextFileToUpload()

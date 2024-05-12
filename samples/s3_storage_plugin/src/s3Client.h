@@ -41,7 +41,7 @@ class s3Client
     bool establishS3Connection();
     bool remoteUriExists(const std::string& uri);
     bool remoteDirExists(const std::string& uri);
-    uint64_t remoteFolderSize(const std::string& uri);
+    uint64_t remoteFolderSize(bool update = false);
     uint64_t getRemoteFileSize(const std::string& uri);
     std::vector<std::string> getobjectKeys(const char *dirUrl);
     bool renameFile(const char *oldUrl, const char *newUrl);
@@ -52,23 +52,26 @@ class s3Client
     bool isAvailable();
     void stopThread();
     bool isFileInUploadList(std::string file)const;
+    bool isTotalSpaceUpdating();
 
     private:
     bool createBucket();
     void fileUploadThread();
     void keepAliveActivator();
+    void updateRemoteFolderSize();
     std::string getNextFileToUpload();
     void removeFileFromUploadList(std::string file);
 
     private:
+    bool        m_totalSpaceUpdating;
     bool        m_running;
     bool        m_storageAvailable;
+    bool        m_reUpdateSpace;
     s3PtrType   m_impl;
     s3PtrType   m_uploadImpl;
+    s3PtrType   m_spaceImpl;
     mutable std::mutex  m_mutex;
     mutable std::mutex  m_waitmutex;
-    bool        m_isMutexUnlocked;
-    std::condition_variable condition;
     std::string m_url;
     std::string m_accessKey;
     std::string m_secretKey;
@@ -76,6 +79,7 @@ class s3Client
     uint64_t    m_space;
     std::vector<std::string> m_fileToUpload;
     std::thread uploadThread;
+    std::thread spaceThread;
     Timer       m_keepAliveTimer;
 };
 

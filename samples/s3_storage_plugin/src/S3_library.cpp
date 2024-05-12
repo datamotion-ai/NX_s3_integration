@@ -175,7 +175,8 @@ namespace nx_spl
     m_available(false),
     m_intialized(false),
     m_freebucketSize(S3_DEFAULT_TOTAL_SPACE),
-    m_totalSpace(S3_DEFAULT_TOTAL_SPACE)
+    m_totalSpace(S3_DEFAULT_TOTAL_SPACE),
+    m_tempbucketSize(0)
     {
 
         aux::Url u;
@@ -304,12 +305,19 @@ namespace nx_spl
             {
                 if(flags & io::ReadOnly)
                 {
-                    size_t last_underscore_pos = filePath.find_last_of('_');
-                    if (last_underscore_pos != std::string::npos) 
+                    size_t last_slase_pos = filePath.find_last_of('/');
+                    if (last_slase_pos != std::string::npos) 
                     {
-                        filePath = filePath.substr(0, last_underscore_pos);
-                        filePath.append(".mkv");
+                        std::string tempFileName = filePath.substr(last_slase_pos+1, filePath.length());
+                        size_t last_underscore_pos = tempFileName.find_last_of('_');
+                        if (last_underscore_pos != std::string::npos) 
+                        {
+                            last_underscore_pos = filePath.find_last_of('_');
+                            filePath = filePath.substr(0, last_underscore_pos);
+                            filePath.append(".mkv");
+                        }
                     }
+
                     aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
                     if(!fs::exists(file.fullPath))
                     {
@@ -340,31 +348,34 @@ namespace nx_spl
 
         if (ecode)
             *ecode = error::NoError;
-        uint64_t totalSize = 0;
-
-        if(m_intialized == false)
-        {
-            m_intialized = true;
-            return m_freebucketSize;
-        }
         
-        if(g_bucketSizeNeedUpdate && (m_impl.get() != nullptr))
+        static bool spaceFullSet = false;
+        uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
+        if(localFolderSize > DEFAULT_1_GB)
         {
-            INFOLOG("Updating Free size");
-            try
+            if(spaceFullSet == false)
             {
-                totalSize = m_impl.get()->remoteFolderSize("/");
-                INFOLOG("totalSize:",totalSize);
+                 INFOLOG("local folder full:",localFolderSize);
+                 ServerManager::getInstance()->postEvent("No Space Available in Local Storage!!, Recording stoped!!","");
+                 spaceFullSet = true;
             }
-            catch(...)
-            {
-                if (ecode)
-                *ecode = error::SpaceInfoNotAvailable;
-                return 0;
-            }
-            m_freebucketSize = getTotalSpace(ecode) - totalSize;
-            INFOLOG("Free size",m_freebucketSize);
-            g_bucketSizeNeedUpdate = false;
+               
+            if (ecode)
+              *ecode = error::NotEnoughSpace;
+            return 0;
+        }
+
+        spaceFullSet = false;
+        
+        if(m_impl.get() != nullptr)
+        {
+            uint64_t totalSize = m_impl.get()->remoteFolderSize(!m_intialized);
+            m_intialized = true;
+            // INFOLOG("totalSize:",totalSize);
+
+            m_freebucketSize = getTotalSpace(ecode) - totalSize - m_tempbucketSize;
+            
+            // INFOLOG("Free size",m_freebucketSize);
         }
         
         return m_freebucketSize;  
@@ -383,17 +394,8 @@ namespace nx_spl
     {
         DEBUGLOG("S3Storage::getCapabilities");
         int ret = 0;
-        uintmax_t localFolderSize = aux::getFolderSize(aux::localUniqueFolder());
-        if(localFolderSize > DEFAULT_1_GB)
-        {
-            ERRORLOG("local folder full:",localFolderSize);
-            ServerManager::getInstance()->postEvent("No Space Available in Local Folder!!, Recording stop!!","");
-        }
-        else
-        {
-            ret |= cap::WriteFile;
-            ret |= cap::ReadFile;
-        }
+        ret |= cap::WriteFile;
+        ret |= cap::ReadFile;
         ret |= cap::ListFile;
         ret |= cap::RemoveFile;
         ret |= cap::DBReady;
@@ -402,17 +404,37 @@ namespace nx_spl
 
     void STORAGE_METHOD_CALL nx_spl::S3Storage::removeFile(const char *url, int *ecode)
     {
-        DEBUGLOG("S3Storage::removeFile",url,m_bucket);
+        INFOLOG("S3Storage::removeFile",url);
         std::lock_guard<std::mutex> lock(m_mutex);
 
         *ecode = error::NoError;
 
         std::string filePath(url);
+
+        if(filePath.find(".mkv") != std::string::npos)
+        {
+            size_t last_slase_pos = filePath.find_last_of('/');
+            if (last_slase_pos != std::string::npos) 
+            {
+                std::string tempFileName = filePath.substr(last_slase_pos+1, filePath.length());
+                size_t last_underscore_pos = tempFileName.find_last_of('_');
+                if (last_underscore_pos != std::string::npos) 
+                {
+                    last_underscore_pos = filePath.find_last_of('_');
+                    filePath = filePath.substr(0, last_underscore_pos);
+                    filePath.append(".mkv");
+                }
+            }
+        }
+
         aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
 
         if(fs::exists(file.fullPath.c_str()))
         {
-            remove(file.fullPath.c_str());
+            if(remove(file.fullPath.c_str()) != 0)
+            {
+                ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
+            }
         }
         else
         {
@@ -430,8 +452,8 @@ namespace nx_spl
                     else 
                     {
                         *ecode = error::NoError;
-                        m_freebucketSize = m_freebucketSize + size;
-                        INFOLOG("file deleted",url,m_freebucketSize);
+                        m_tempbucketSize = m_tempbucketSize - size;
+                        INFOLOG("file deleted",url,m_tempbucketSize);
                     }
                 }
             }
@@ -461,7 +483,8 @@ namespace nx_spl
             else 
             {
                 *ecode = error::NoError;
-                g_bucketSizeNeedUpdate = true;
+                m_impl.get()->remoteFolderSize(true);
+                m_tempbucketSize = 0;
                 INFOLOG("deleted directory",url);
             }
         }
@@ -479,7 +502,7 @@ namespace nx_spl
         INFOLOG("S3Storage::renameFile",oldUrl,newUrl);
         if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
             return;
-
+        
         if(m_impl.get() != nullptr)
         {
             aux::FileNameAndPath oldFile = aux::localUniqueFilePath(std::string(oldUrl));
@@ -489,14 +512,17 @@ namespace nx_spl
                 if (!m_impl.get()->addFileToUploadInQueue(newUrl)) 
                 {
                     ERRORLOG("Failed to upload object",oldUrl,newUrl);
-                    ClearMemoryManager::getInstance()->addFileToRemoveList(oldFile.fullPath);
+                    if(remove(oldFile.fullPath.c_str()) != 0)
+                    {
+                        ClearMemoryManager::getInstance()->addFileToRemoveList(oldFile.fullPath);
+                    }
                     *ecode = error::UnknownError;
                 }
                 else
                 {
                     uint64_t size = aux::getFileSize(oldFile.fullPath.c_str());
-                    m_freebucketSize = m_freebucketSize + size;
-                    INFOLOG("added file to uploaded",newUrl,m_freebucketSize);
+                    m_tempbucketSize = m_tempbucketSize + size;
+                    INFOLOG("added file to uploaded",newUrl,m_tempbucketSize);
                     *ecode = error::NoError;
                 }
             }
@@ -549,7 +575,7 @@ namespace nx_spl
         {
             std::string filePath(url);
 
-            if(filePath.find(".nxdb") == std::string::npos)
+            if(filePath.find(".mkv") != std::string::npos)
             {
                 size_t last_slase_pos = filePath.find_last_of('/');
                 if (last_slase_pos != std::string::npos) 

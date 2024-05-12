@@ -191,6 +191,7 @@ namespace nx_spl
     private:
         mutable implPtrType m_impl;
         mutable uint64_t    m_freebucketSize;
+        mutable int64_t     m_tempbucketSize;
         uint64_t            m_totalSpace;
         mutable std::mutex  m_mutex;
         mutable bool        m_available;

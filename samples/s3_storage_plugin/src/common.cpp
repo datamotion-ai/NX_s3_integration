@@ -1,6 +1,5 @@
 #include "common.hpp"
 
-bool g_bucketSizeNeedUpdate = true;
 std::string g_userAgent;
 
 namespace nx_spl
