@@ -39,6 +39,7 @@ class s3Client
     ~s3Client();
 
     bool establishS3Connection();
+    bool initializeConnection();
     bool remoteUriExists(const std::string& uri);
     bool remoteDirExists(const std::string& uri);
     uint64_t remoteFolderSize(bool update = false);

@@ -32,31 +32,6 @@ namespace nx_spl
         m_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Error;
         Aws::InitAPI(m_options);
         std::srand((unsigned int) time(0));
-
-    #if defined (_WIN32)
-
-        NTSTATUS(WINAPI *RtlGetVersion)(LPOSVERSIONINFOEXW);
-        OSVERSIONINFOEXW osInfo;
-
-        *(FARPROC*)&RtlGetVersion = GetProcAddress(GetModuleHandleA("ntdll"), "RtlGetVersion");
-
-        if (NULL != RtlGetVersion)
-        {
-            osInfo.dwOSVersionInfoSize = sizeof(osInfo);
-            RtlGetVersion(&osInfo);
-        }
-        g_userAgent = "Wasabi/1.0 NX Wasabi_storage_sdk/"  + std::string(VERSION) 
-        + " Windows/" + std::to_string(osInfo.dwMajorVersion) + "." 
-        + std::to_string( osInfo.dwMinorVersion) + "." + std::to_string( osInfo.dwBuildNumber);
-        INFOLOG("OS Version",g_userAgent);
-
-    #else
-        struct utsname unameData;
-        uname(&unameData);
-        g_userAgent = "Wasabi/1.0 NX Wasabi_storage_sdk/"  +  std::string(VERSION) + " LINUX/" + unameData.release;
-        INFOLOG("OS Version",g_userAgent);
-    #endif
-
         ClearMemoryManager::getInstance();
     }
 
@@ -103,6 +78,13 @@ namespace nx_spl
             ERRORLOG(e.what());
             if (ecode)
                 *ecode = error::UrlNotExists;
+            return nullptr;
+        }
+        catch (const aux::ConnectException& e)
+        {
+            ERRORLOG(e.what());
+            if (ecode)
+                *ecode = error::StorageUnavailable;
             return nullptr;
         }
         return ret;
@@ -266,6 +248,12 @@ namespace nx_spl
 
         if(m_impl.get() != nullptr)
         {
+            if(m_intialized == false)
+            {
+                m_impl.get()->initializeConnection();
+                m_intialized = true;
+            }
+
             m_available = m_impl.get()->isAvailable();
             if(m_available == false)
             {
@@ -369,13 +357,8 @@ namespace nx_spl
         
         if(m_impl.get() != nullptr)
         {
-            uint64_t totalSize = m_impl.get()->remoteFolderSize(!m_intialized);
-            m_intialized = true;
-            // INFOLOG("totalSize:",totalSize);
-
+            uint64_t totalSize = m_impl.get()->remoteFolderSize();
             m_freebucketSize = getTotalSpace(ecode) - totalSize - m_tempbucketSize;
-            
-            // INFOLOG("Free size",m_freebucketSize);
         }
         
         return m_freebucketSize;  

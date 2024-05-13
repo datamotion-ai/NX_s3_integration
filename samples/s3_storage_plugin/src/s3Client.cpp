@@ -48,7 +48,6 @@ bool s3Client::establishS3Connection()
     Aws::Client::ClientConfiguration clientConfig;
     clientConfig.scheme = Aws::Http::Scheme::HTTPS;
     clientConfig.endpointOverride = Aws::String(m_url);
-    clientConfig.userAgent = g_userAgent;
 
     Aws::Auth::AWSCredentials credentials;
     credentials.SetAWSAccessKeyId(m_accessKey);
@@ -56,15 +55,11 @@ bool s3Client::establishS3Connection()
     
     #if defined (_WIN32)
         m_impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
-        m_uploadImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
-        m_spaceImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
     #else
         m_impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
-        m_uploadImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
-        m_spaceImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
     #endif
 
-    if((m_impl.get() != nullptr) && (m_uploadImpl.get() != nullptr) && (m_spaceImpl.get() != nullptr))
+    if(m_impl.get() != nullptr)
     {
         bool bucketFound = false;
         auto outcome = m_impl->ListBuckets();
@@ -86,6 +81,7 @@ bool s3Client::establishS3Connection()
             else
             {
                 bucketFound = true;
+                m_storageAvailable = true;
             }
         }
         else
@@ -102,12 +98,74 @@ bool s3Client::establishS3Connection()
         if(bucketFound == true)
         {
             INFOLOG("SuccessFully establish s3 connection with host: ");
-            m_running = true;
-            m_storageAvailable = true;
-            uploadThread = std::thread(&s3Client::fileUploadThread, this);
-            m_keepAliveTimer.start(this,&s3Client::keepAliveActivator,ONE_MINUTE);
             return true;
         }
+    }
+    else
+    {
+        ERRORLOG("implPtrType is nullptr");
+    }
+
+    return false;
+}
+
+bool s3Client::initializeConnection()
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    INFOLOG("initializeConnection");
+    Aws::Client::ClientConfiguration clientConfig;
+    clientConfig.scheme = Aws::Http::Scheme::HTTPS;
+    clientConfig.endpointOverride = Aws::String(m_url);
+
+    #if defined (_WIN32)
+
+        NTSTATUS(WINAPI *RtlGetVersion)(LPOSVERSIONINFOEXW);
+        OSVERSIONINFOEXW osInfo;
+
+        *(FARPROC*)&RtlGetVersion = GetProcAddress(GetModuleHandleA("ntdll"), "RtlGetVersion");
+
+        if (NULL != RtlGetVersion)
+        {
+            osInfo.dwOSVersionInfoSize = sizeof(osInfo);
+            RtlGetVersion(&osInfo);
+        }
+        g_userAgent = "Wasabi/"  + std::string(VERSION) + " " + g_VMS + 
+        + " Windows/" + std::to_string(osInfo.dwMajorVersion) + "." 
+        + std::to_string( osInfo.dwMinorVersion) + "." + std::to_string( osInfo.dwBuildNumber);
+        INFOLOG("userAgent",g_userAgent);
+
+    #else
+        struct utsname unameData;
+        uname(&unameData);
+        g_userAgent = "Wasabi/"  + std::string(VERSION) + " " + g_VMS + " LINUX/" + unameData.release;
+        INFOLOG("userAgent",g_userAgent);
+    #endif
+
+    clientConfig.userAgent = g_userAgent;
+
+    Aws::Auth::AWSCredentials credentials;
+    credentials.SetAWSAccessKeyId(m_accessKey);
+    credentials.SetAWSSecretKey(m_secretKey);
+    
+    #if defined (_WIN32)
+        m_impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
+        m_uploadImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
+        m_spaceImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
+    #else
+        m_impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
+        m_uploadImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
+        m_spaceImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
+    #endif
+
+    if((m_impl.get() != nullptr) && (m_uploadImpl.get() != nullptr) && (m_spaceImpl.get() != nullptr))
+    {
+        m_running = true;
+        m_reUpdateSpace = false;
+        uploadThread = std::thread(&s3Client::fileUploadThread, this);
+        spaceThread = std::thread(&s3Client::updateRemoteFolderSize, this);
+        m_keepAliveTimer.start(this,&s3Client::keepAliveActivator,ONE_MINUTE);
+        INFOLOG("SuccessFully initialise s3 connection with host: ");
+        return true;
     }
     else
     {
@@ -375,7 +433,7 @@ bool s3Client::addFileToUploadInQueue(const char *url)
 {
     DEBUGLOG("s3Client::addFileToUploadInQueue",url);
     std::lock_guard<std::mutex> lock(m_mutex);
-    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(m_bucket + FILE_UPLOAD_JSON);
     if(!fs::exists(file.fullPath))
     {
         Json::Value root(Json::arrayValue);
@@ -455,7 +513,9 @@ bool s3Client::addFileToUploadInQueue(const char *url)
         }
         else
         {
+            inputFile.close();
             ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
+            remove(file.fullPath.c_str());
             return false;
         }
         inputFile.close();
@@ -581,7 +641,7 @@ bool s3Client::isFileInUploadList(std::string fileName) const
     DEBUGLOG("s3Client::isFileInUploadList",file);
     std::lock_guard<std::mutex> lock(m_mutex);
     bool ret = false;
-    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(m_bucket + FILE_UPLOAD_JSON);
     std::ifstream inputFile(file.fullPath);
     if (inputFile.is_open())
     {
@@ -837,7 +897,7 @@ std::string s3Client::getNextFileToUpload()
     std::lock_guard<std::mutex> lock(m_mutex);
     DEBUGLOG("s3Client::getNextFileToUpload");
     std::string fileName;
-    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(m_bucket + FILE_UPLOAD_JSON);
     std::ifstream inputFile(file.fullPath);
     if (inputFile.is_open())
     {
@@ -880,7 +940,7 @@ void s3Client::removeFileFromUploadList(std::string fileName)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     INFOLOG("s3Client::removeFileFromUploadList",fileName);
-    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(FILE_UPLOAD_JSON);
+    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(m_bucket + FILE_UPLOAD_JSON);
     std::ifstream inputFile(file.fullPath);
     if (inputFile.is_open())
     {

@@ -57,7 +57,7 @@
 #define S3_DEFAULT_TOTAL_SPACE 1024LL * DEFAULT_1_GB //100 GB
 
 #define LICENSE_CONFIG_FILE "license.config"
-#define FILE_UPLOAD_JSON "s3UploadList.json"
+#define FILE_UPLOAD_JSON "UploadList.json"
 #define ONE_SECOND 1000
 #define ONE_MINUTE 60 * 1000
 #define FIVE_MINUTE 5 * ONE_MINUTE
@@ -67,6 +67,7 @@
 extern bool g_bucketSizeNeedUpdate;
 extern std::vector<std::string> g_removeFileList;
 extern std::string g_userAgent;
+extern std::string g_VMS;
 
 #define ERROR_LIST(APPLY) \
 APPLY(nx_spl::error::EndOfFile) \

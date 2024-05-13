@@ -294,6 +294,7 @@ bool ServerManager::verifyLicense()
         {
             INFOLOG("------->",response);
             INFOLOG("------->",headerResponse);
+            g_VMS = headerResponse;
             if(headerResponse.find("Nx Witness") != std::string::npos)
             {
                 Json::Value jsonData;

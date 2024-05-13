@@ -10,6 +10,7 @@ Fix:
 1. updated file upload operation in BG to make process faster
 2. restricted local storage to 1GB
 3. updated bucket size calculation operation in BG
+4. updated user agent to Wasabi/1.0 <VMS app> <OS> /<version number>
 
 
 Version beta 1.0.3

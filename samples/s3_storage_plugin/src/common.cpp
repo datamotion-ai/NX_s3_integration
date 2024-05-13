@@ -1,6 +1,7 @@
 #include "common.hpp"
 
 std::string g_userAgent;
+std::string g_VMS;
 
 namespace nx_spl
 {
