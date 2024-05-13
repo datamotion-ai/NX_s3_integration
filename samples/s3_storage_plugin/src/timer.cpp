@@ -42,12 +42,15 @@ void Timer::setInterval(int timeout)
 // Timer thread function
 void Timer::timerThreadFunction() 
 {
+    int time = 0;
     while (running) 
     {
-        std::this_thread::sleep_for(std::chrono::milliseconds(interval));
-        if (running && callback) 
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        time += 100;
+        if ((time >= interval) && running && callback) 
         {
             callback();
+            time = 0;
         }
     }
 }

@@ -86,7 +86,6 @@ if(WINDOWS_BUILD)
     target_link_libraries(s3_storage_plugin PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/jsoncpp/build/lib/Release/jsoncpp_static.lib
         ${AWSSDK_LINK_LIBRARIES}
-        #${AWSSDK_PLATFORM_DEPS}
         CURL::libcurl)
 else()
     target_link_libraries(s3_storage_plugin PRIVATE 
