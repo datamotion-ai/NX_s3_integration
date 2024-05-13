@@ -189,7 +189,14 @@ bool s3Client::remoteUriExists(const std::string& uri)
     }
     else
     {
-        ERRORLOG("implPtrType is nullptr!");
+        if(!m_storageAvailable)
+        {
+            INFOLOG("Storage not available!!");
+        }
+        else
+        {
+            ERRORLOG("implPtrType is nullptr!");
+        }
     }
     return found;
 }
@@ -230,7 +237,14 @@ bool s3Client::remoteDirExists(const std::string &uri)
     }
     else
     {
-        ERRORLOG("implPtrType is null ptr!!");
+        if(!m_storageAvailable)
+        {
+            INFOLOG("Storage not available!!");
+        }
+        else
+        {
+            ERRORLOG("implPtrType is nullptr!");
+        }
         return 0;
     }
     return found;
@@ -277,7 +291,14 @@ uint64_t s3Client::getRemoteFileSize(const std::string& uri)
     }
     else
     {
-        ERRORLOG("implPtrType is nullptr");
+        if(!m_storageAvailable)
+        {
+            INFOLOG("Storage not available!!");
+        }
+        else
+        {
+            ERRORLOG("implPtrType is nullptr!");
+        }
     }
     return size;
 }
@@ -395,7 +416,14 @@ bool s3Client::renameFile(const char *oldUrl, const char *newUrl)
     }
     else
     {
-        ERRORLOG("implPtrType is nullptr!")
+        if(!m_storageAvailable)
+        {
+            INFOLOG("Storage not available!!");
+        }
+        else
+        {
+            ERRORLOG("implPtrType is nullptr!");
+        }
     }
     return ret;
 }
@@ -424,7 +452,14 @@ bool s3Client::removeUrl(const char *url)
     }
     else
     {
-        ERRORLOG("implPtrType is nullptr!");
+        if(!m_storageAvailable)
+        {
+            INFOLOG("Storage not available!!");
+        }
+        else
+        {
+            ERRORLOG("implPtrType is nullptr!");
+        }
     }
     return ret;
 }
@@ -564,7 +599,15 @@ bool s3Client::uploadFile(const char *url, std::string fileName)
     }
     else
     {
-        ERRORLOG("implPtrType is nullptr!");
+        if(!m_storageAvailable)
+        {
+            INFOLOG("Storage not available!!");
+        }
+        else
+        {
+            ERRORLOG("implPtrType is nullptr!");
+        }
+        
     }
     return ret;
 }
@@ -605,7 +648,14 @@ bool s3Client::downloadFile(const char *url, std::string fileName)
     }
     else
     {
-        ERRORLOG("implPtrType is nullptr!");
+        if(!m_storageAvailable)
+        {
+            INFOLOG("Storage not available!!");
+        }
+        else
+        {
+            ERRORLOG("implPtrType is nullptr!");
+        }
     }
     return ret;
 }
@@ -852,8 +902,11 @@ void s3Client::updateRemoteFolderSize()
     {
         for (const auto& object : outcome.GetResult().GetContents())
         {
-            if(m_running == false)
-                return;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                if(m_running == false)
+                    return;
+            }
 
             Aws::S3::Model::HeadObjectRequest headObjectRequest;
             headObjectRequest.WithBucket(m_bucket).WithKey(object.GetKey());

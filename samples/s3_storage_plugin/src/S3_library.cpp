@@ -236,7 +236,7 @@ namespace nx_spl
 
     int STORAGE_METHOD_CALL nx_spl::S3Storage::isAvailable() const
     {
-        INFOLOG("S3Storage::isAvailable");
+        DEBUGLOG("S3Storage::isAvailable");
         std::lock_guard<std::mutex> lock(m_mutex);
         if(ServerManager::getInstance()->isLicenseAvailable() == false)
         {
@@ -265,7 +265,7 @@ namespace nx_spl
             ERRORLOG("implPtrType is nullptr!");
             m_available = false;
         }
-        INFOLOG("Storage Available",m_available);
+        DEBUGLOG("Storage Available",m_available);
         return 1;
     }
 
@@ -749,7 +749,7 @@ namespace nx_spl
             }
 
             
-            INFOLOG("File size",m_localfile.fullPath,m_localsize);
+            DEBUGLOG("File size",m_localfile.fullPath,m_localsize);
 
             if(m_file == NULL)
             {
