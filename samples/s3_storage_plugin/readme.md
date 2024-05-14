@@ -11,6 +11,8 @@ Fix:
 2. restricted local storage to 1GB
 3. updated bucket size calculation operation in BG
 4. updated user agent to Wasabi/1.0 <VMS app> <OS> /<version number>
+5. added s3.config to update storage size
+6. locked plugin to work only with Network Optix
 
 
 Version beta 1.0.3

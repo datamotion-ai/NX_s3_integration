@@ -253,7 +253,7 @@ bool s3Client::remoteDirExists(const std::string &uri)
 uint64_t s3Client::remoteFolderSize(bool update)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
-    DEBUGLOG("s3Client::remoteFolderSize",uri);
+    DEBUGLOG("s3Client::remoteFolderSize");
     if((update || m_reUpdateSpace) && !m_totalSpaceUpdating)
     {
         if(m_storageAvailable) 
@@ -688,7 +688,7 @@ void s3Client::stopThread()
 
 bool s3Client::isFileInUploadList(std::string fileName) const
 {
-    DEBUGLOG("s3Client::isFileInUploadList",file);
+    DEBUGLOG("s3Client::isFileInUploadList",fileName);
     std::lock_guard<std::mutex> lock(m_mutex);
     bool ret = false;
     nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(m_bucket + FILE_UPLOAD_JSON);

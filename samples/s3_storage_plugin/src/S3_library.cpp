@@ -452,7 +452,7 @@ namespace nx_spl
     void STORAGE_METHOD_CALL nx_spl::S3Storage::removeDir(const char *url, int *ecode)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        DEBUGLOG("S3Storage::removeDir",url,m_bucket);
+        DEBUGLOG("S3Storage::removeDir",url);
         if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
             return;
         
