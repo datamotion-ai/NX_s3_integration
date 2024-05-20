@@ -40,7 +40,7 @@
 #define FIVE_MINUTE 5 * ONE_MINUTE
 #define TEN_MINUTE 10 * ONE_MINUTE
 #define MAX_FILE_WRITE_COUNT 1
-#define VERSION "beta-1.0.4"
+#define VERSION "beta-1.0.3.1"
 
 bool g_bucketSizeNeedUpdate = true;
 std::vector<std::string> g_removeFileFailedList;
@@ -763,8 +763,8 @@ namespace nx_spl
                 {
                     INFOLOG("------->",response);
                     INFOLOG("------->",headerResponse);
-                    if(headerResponse.find("Nx Witness") != std::string::npos)
-                    {
+                    // if(headerResponse.find("Nx Witness") != std::string::npos)
+                    // {
                         Json::Value jsonData;
                         Json::CharReaderBuilder jsonReaderBuilder;
                         std::istringstream jsonStream(response);
@@ -803,27 +803,37 @@ namespace nx_spl
                                         std::string expirationValue = licenseObject["EXPIRATION"].asString();
                                         INFOLOG("---EXPIRATION---->",expirationValue);
 
-                                        std::time_t rawTime;
-                                        std::tm* timeInfo;
-                                        char buffer[80];
+                                        if(expirationValue.empty() == false)
+                                        {
+                                            std::time_t rawTime;
+                                            std::tm* timeInfo;
+                                            char buffer[80];
 
-                                        std::time(&rawTime);
-                                        timeInfo = std::localtime(&rawTime);
+                                            std::time(&rawTime);
+                                            timeInfo = std::localtime(&rawTime);
 
-                                        std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-                                        std::string timestamp(buffer);
+                                            std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
+                                            std::string timestamp(buffer);
 
-                                        if(timestamp <= expirationValue)
+                                            if(timestamp <= expirationValue)
+                                            {
+                                                INFOLOG("***Valid license***");
+                                                g_licenseAvailable = true;
+                                                m_timer.setInterval(TEN_MINUTE);
+                                                break;
+                                            }
+                                            else
+                                            {
+                                                INFOLOG("Invalid license");
+                                                g_licenseAvailable = false;
+                                            }
+                                        }
+                                        else
                                         {
                                             INFOLOG("***Valid license***");
                                             g_licenseAvailable = true;
                                             m_timer.setInterval(TEN_MINUTE);
                                             break;
-                                        }
-                                        else
-                                        {
-                                            INFOLOG("Invalid license");
-                                            g_licenseAvailable = false;
                                         }
                                     } 
                                     else 
@@ -838,11 +848,11 @@ namespace nx_spl
                         {
                             ERRORLOG("Invalid Json response",response);
                         }
-                    }
-                    else
-                    {
-                        ERRORLOG("Oops!!, Invalid Server!!",headerResponse);
-                    }
+                    // }
+                    // else
+                    // {
+                    //     ERRORLOG("Oops!!, Invalid Server!!",headerResponse);
+                    // }
                 }
                 curl_slist_free_all(headers);
                 curl_easy_reset(curl);
