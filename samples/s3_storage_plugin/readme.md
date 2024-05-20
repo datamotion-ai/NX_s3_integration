@@ -13,6 +13,7 @@ Fix:
 4. updated user agent to Wasabi/1.0 <VMS app> <OS> /<version number>
 5. added s3.config to update storage size
 6. locked plugin to work only with Network Optix
+7. resolved never expire licence verification issue
 
 
 Version beta 1.0.3
