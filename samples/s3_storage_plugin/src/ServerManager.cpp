@@ -335,17 +335,7 @@ bool ServerManager::verifyLicense()
                                 std::string expirationValue = licenseObject["EXPIRATION"].asString();
                                 INFOLOG("---EXPIRATION---->",expirationValue);
 
-                                std::time_t rawTime;
-                                std::tm* timeInfo;
-                                char buffer[80];
-
-                                std::time(&rawTime);
-                                timeInfo = std::localtime(&rawTime);
-
-                                std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-                                std::string timestamp(buffer);
-
-                                if(timestamp <= expirationValue)
+                                if(expirationValue.empty())
                                 {
                                     INFOLOG("***Valid license***");
                                     licenseAvailable = true;
@@ -353,8 +343,27 @@ bool ServerManager::verifyLicense()
                                 }
                                 else
                                 {
-                                    INFOLOG("Invalid license");
-                                    licenseAvailable = false;
+                                    std::time_t rawTime;
+                                    std::tm* timeInfo;
+                                    char buffer[80];
+
+                                    std::time(&rawTime);
+                                    timeInfo = std::localtime(&rawTime);
+
+                                    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
+                                    std::string timestamp(buffer);
+
+                                    if(timestamp <= expirationValue)
+                                    {
+                                        INFOLOG("***Valid license***");
+                                        licenseAvailable = true;
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        INFOLOG("Invalid license");
+                                        licenseAvailable = false;
+                                    }
                                 }
                             } 
                             else 
