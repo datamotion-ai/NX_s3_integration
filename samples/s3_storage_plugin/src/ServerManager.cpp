@@ -335,14 +335,14 @@ bool ServerManager::verifyLicense()
                                 std::string expirationValue = licenseObject["EXPIRATION"].asString();
                                 INFOLOG("---EXPIRATION---->",expirationValue);
 
-                                if(expirationValue.empty())
-                                {
-                                    INFOLOG("***Valid license***");
-                                    licenseAvailable = true;
-                                    break;
-                                }
-                                else
-                                {
+                                // if(expirationValue.empty())
+                                // {
+                                //     INFOLOG("***Valid license***");
+                                //     licenseAvailable = true;
+                                //     break;
+                                // }
+                                // else
+                                // {
                                     std::time_t rawTime;
                                     std::tm* timeInfo;
                                     char buffer[80];
@@ -364,7 +364,7 @@ bool ServerManager::verifyLicense()
                                         INFOLOG("Invalid license");
                                         licenseAvailable = false;
                                     }
-                                }
+                                // }
                             } 
                             else 
                             {
