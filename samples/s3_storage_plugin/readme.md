@@ -5,7 +5,6 @@ backend, as a Storage Plugin for the VMS Server, built using Storage SDK.
 
 Version beta 1.0.3.1
 ------------------------------------
-issue: resolved never expire licence verification
 updated default storage size to 1000GB
 
 Version beta 1.0.3

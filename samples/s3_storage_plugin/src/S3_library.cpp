@@ -803,37 +803,27 @@ namespace nx_spl
                                         std::string expirationValue = licenseObject["EXPIRATION"].asString();
                                         INFOLOG("---EXPIRATION---->",expirationValue);
 
-                                        if(expirationValue.empty() == false)
-                                        {
-                                            std::time_t rawTime;
-                                            std::tm* timeInfo;
-                                            char buffer[80];
+                                        std::time_t rawTime;
+                                        std::tm* timeInfo;
+                                        char buffer[80];
 
-                                            std::time(&rawTime);
-                                            timeInfo = std::localtime(&rawTime);
+                                        std::time(&rawTime);
+                                        timeInfo = std::localtime(&rawTime);
 
-                                            std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-                                            std::string timestamp(buffer);
+                                        std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
+                                        std::string timestamp(buffer);
 
-                                            if(timestamp <= expirationValue)
-                                            {
-                                                INFOLOG("***Valid license***");
-                                                g_licenseAvailable = true;
-                                                m_timer.setInterval(TEN_MINUTE);
-                                                break;
-                                            }
-                                            else
-                                            {
-                                                INFOLOG("Invalid license");
-                                                g_licenseAvailable = false;
-                                            }
-                                        }
-                                        else
+                                        if(timestamp <= expirationValue)
                                         {
                                             INFOLOG("***Valid license***");
                                             g_licenseAvailable = true;
                                             m_timer.setInterval(TEN_MINUTE);
                                             break;
+                                        }
+                                        else
+                                        {
+                                            INFOLOG("Invalid license");
+                                            g_licenseAvailable = false;
                                         }
                                     } 
                                     else 
