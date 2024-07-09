@@ -15,6 +15,8 @@
 #include <json/json.h>
 #include <curl/curl.h>
 #include <map>
+#include <openssl/aes.h>
+#include <openssl/rand.h>
 #include "S3_library.h"
 #include "daily_loger.hpp"
 
@@ -707,7 +709,12 @@ namespace nx_spl
 
             const std::string nxHostUrl = root["host"].asString();
             const std::string nxUserName = root["username"].asString();
-            const std::string nxPassword = root["password"].asString();
+            
+            std::string nxTemp = root["password"].asString();
+            const std::string nxPassword = decrypt_string(nxTemp);
+            std::string nxOEM = root["OEM"].asString();
+            if(!nxOEM.empty())
+                nxOEM = decrypt_string(nxOEM);
 
             static std::string token;
             if(token.empty() || isSessionExpired(nxHostUrl, token))
@@ -763,8 +770,8 @@ namespace nx_spl
                 {
                     INFOLOG("------->",response);
                     INFOLOG("------->",headerResponse);
-                    // if(headerResponse.find("Nx Witness") != std::string::npos)
-                    // {
+                    if(nxOEM.empty() || (headerResponse.find(nxOEM) != std::string::npos))
+                    {
                         Json::Value jsonData;
                         Json::CharReaderBuilder jsonReaderBuilder;
                         std::istringstream jsonStream(response);
@@ -838,11 +845,11 @@ namespace nx_spl
                         {
                             ERRORLOG("Invalid Json response",response);
                         }
-                    // }
-                    // else
-                    // {
-                    //     ERRORLOG("Oops!!, Invalid Server!!",headerResponse);
-                    // }
+                    }
+                    else
+                    {
+                        ERRORLOG("Oops!!, Invalid Server!!",headerResponse);
+                    }
                 }
                 curl_slist_free_all(headers);
                 curl_easy_reset(curl);
@@ -987,6 +994,47 @@ namespace nx_spl
             curl_easy_reset(curl);
         }
         return ret;
+    }
+
+    std::string nx_spl::S3StorageFactory::hex_to_string(const std::string &hex_input)
+    {
+        std::string output;
+        for (size_t i = 0; i < hex_input.length(); i += 2) 
+        {
+            std::string byte = hex_input.substr(i, 2);
+            char chr = (char)(int)strtol(byte.c_str(), nullptr, 16);
+            output.push_back(chr);
+        }
+        return output;
+    }
+
+    std::string nx_spl::S3StorageFactory::decrypt_string(const std::string &input)
+    {
+        std::string str_value = hex_to_string(input);
+
+        unsigned char ckey[16] = "*&^%$#@!$%^&#*^";
+        const char ivecstr[AES_BLOCK_SIZE] = "NXStorageSDK\0";
+        unsigned char ivec_dec[AES_BLOCK_SIZE];
+        memcpy(ivec_dec, ivecstr, AES_BLOCK_SIZE);
+
+        int num = 0;
+
+        AES_KEY keyEn;
+        /* set the encryption key */
+        AES_set_encrypt_key(ckey, 128, &keyEn);
+
+        int bytes_read;
+        unsigned char indata[AES_BLOCK_SIZE];
+        unsigned char outdata[AES_BLOCK_SIZE];
+
+        strcpy((char*)indata, str_value.c_str());
+        bytes_read = sizeof(indata);
+
+        AES_cfb128_encrypt(indata, outdata, bytes_read, &keyEn, ivec_dec, &num, AES_DECRYPT);
+
+        std::string decrypted_str(reinterpret_cast<char*>(outdata), std::strlen(reinterpret_cast<char*>(outdata)));
+
+        return decrypted_str;
     }
 
     const char** STORAGE_METHOD_CALL nx_spl::S3StorageFactory::findAvailable() const

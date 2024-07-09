@@ -299,6 +299,11 @@ namespace nx_spl
         void clearMemory();
         bool createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string& token) const;
         bool isSessionExpired(const std::string &host,std::string& token) const;
+
+        
+        std::string hex_to_string(const std::string& hex_input);
+        std::string decrypt_string(const std::string& input);
+
     private:
         Aws::SDKOptions m_options;
         static std::mutex  m_mutex;
