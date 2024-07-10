@@ -5,11 +5,11 @@ set -u #< Prohibit undefined variables.
 
 echo "Settingup sdk .."
 
-apt-get install libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev libpulse-dev
-cp license.config /opt/networkoptix/mediaserver/bin/
-cp s3.config /opt/networkoptix/mediaserver/bin/
-cp libs3_storage_plugin.so /opt/networkoptix/mediaserver/bin/plugins/
-systemctl restart networkoptix-mediaserver.service
+./Storage_SDK_Installation
+
+cp license.config /mnt/plugin/networkoptix/mediaserver/bin/
+cp s3.config /mnt/plugin/networkoptix/mediaserver/bin/
+cp libs3_storage_plugin.so /mnt/plugin/networkoptix/mediaserver/bin/plugins/
 
 echo "Settingup sdk done"
 

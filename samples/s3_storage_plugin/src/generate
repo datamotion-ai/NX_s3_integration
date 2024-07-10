@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+# encoding: utf-8
+#
+# Copyright VCA Technology
+#
+
+import argparse
+import configparser
+import os
+import re
+from shutil import which, copyfile
+import subprocess
+import sys
+
+
+args = None
+
+project_root = os.path.dirname(os.path.realpath(__file__))
+
+
+def find_tool(tool):
+  path = which(tool)
+  if path:
+    return path
+
+  sys.stderr.write('Failed to find {}\n'.format(tool))
+  sys.exit(1)
+
+
+def check_python_module(module):
+  try:
+    __import__(module)
+  except:
+    sys.stderr.write("Python '{}' module was not installed\n".format(module))
+    sys.exit(1)
+
+
+def determine_compiler_version(compiler):
+  # Read the compiler version from conans default profile
+  import subprocess
+  try:
+    res = subprocess.run(['conan', 'profile', 'get', 'settings.compiler.version', 'default'], stdout=subprocess.PIPE, check=True)
+    return str(int(res.stdout.decode('utf-8')))
+  except:
+    print("Failed to read compiler.version setting from conan, checking system compiler")
+
+  # failed, fallback to checking system compiler
+  if compiler == 'Visual Studio':
+    import winreg
+    try:
+      with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r'SOFTWARE\Microsoft\VisualStudio') as visual_studio_key:
+        num_version_keys, _, _ = winreg.QueryInfoKey(visual_studio_key);
+        visual_studio_keys = [winreg.EnumKey(visual_studio_key, i) for i in range(num_version_keys)]
+        visual_studio_versions = sorted([tuple(int(d) for d in k.split('.'))
+            for k in visual_studio_keys if re.match(r'[0-9]+.[0-9]+', k)])
+        return str(visual_studio_versions[-1][0])
+    except:
+      raise RuntimeError('Failed to determine Visual Studio version')
+  elif compiler == 'gcc':
+    try:
+      dumpversion = subprocess.check_output([gcc, '-dumpversion']).decode('utf-8').strip()
+      return '.'.join(dumpversion.split('.')[0:2])
+    except:
+      raise RuntimeError('Failed to determine gcc version')
+  else:
+    raise NotImplementedError('Unable to determine version of compiler: ' + compiler)
+
+
+def call(cmd_args, *k, **kw):
+  if args.verbose:
+    print(' '.join(cmd_args))
+  subprocess.check_call(cmd_args, *k, **kw)
+
+
+if __name__ == '__main__':
+  #
+  # Parse arguments
+  #
+
+  defaults = {
+    'arch': 'x86_64',
+    'build_directory': 'build',
+    'build_type': 'Debug',
+    'compiler': 'Visual Studio' if os.name == 'nt' else 'gcc',
+    'compiler_version': None,
+    'define': [],
+    'env': [],
+    'generator': "Visual Studio 15 2017 Win64" if os.name == 'nt' else 'Ninja',
+    'package': 'core',
+    'skip_conan': False,
+    'verbose': False,
+  }
+
+  parser = argparse.ArgumentParser(description='Configures the VCA Core build system')
+
+  parser.add_argument('-f', '--config-file', help='Load settings from a config file')
+  parser.add_argument('-s', '--config-section', help='Load settings from a section of the config', default='core')
+  parser.add_argument('-p', '--package', choices=['core', 'core-bridge', 'core-embedded-sdk'],
+      help='Package type to build')
+  parser.add_argument('-b', '--build-type', choices=['Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel'],
+      help='Build type')
+  parser.add_argument('--compiler', type=str)
+  parser.add_argument('--compiler-version', type=str)
+  parser.add_argument('-a', '--arch', type=str, help='The architecture to build for',
+      choices=['armv7hf', 'x86_64', 'armv8'])
+  parser.add_argument('--skip-conan', help='Skip running conan', action='store_true')
+  parser.add_argument('-G', '--generator', help='Specify the cmake build system generator', type=str)
+  parser.add_argument('-D', '--define', help='Include additional cmake definitions', action='append', default=[])
+  parser.add_argument('-E', '--env', help='Sets an environment variable (var=value)', action='append', default=[])
+  parser.add_argument('-v', '--verbose', help='Output commands as they are run', action='store_true')
+  parser.add_argument('--build-directory', help='Build directory (default: build/)')
+
+  args = parser.parse_args()
+
+  #
+  # Load config files
+  #
+
+  config = configparser.ConfigParser(interpolation=configparser.ExtendedInterpolation())
+  if args.config_file:
+    try:
+      config.read_file(open(args.config_file))
+    except FileNotFoundError as e:
+      sys.stderr.write("Failed to find config file: '{}'\n".format(args.config_file))
+      sys.exit(1)
+  config.read([os.path.join(project_root, '.config'), os.path.join(os.path.expanduser('~/.vcaconfig'))])
+
+  try:
+    config_section = dict(config.items(args.config_section))
+  except configparser.NoSectionError:
+    if args.config_file:
+      sys.stderr.write("No section: [{}]\n".format(args.config_section))
+      sys.exit(1)
+    else:
+      config_section = {}
+
+  for k, default in defaults.items():
+    config_value = config_section.get(k)
+    if type(default) == list:
+      if config_value:
+        vars(args)[k] = config_value.split(';') + vars(args)[k]
+    else:
+      vars(args)[k] = vars(args)[k] or config_value or default
+
+  #
+  # Set the environment
+  #
+
+  env = os.environ.copy()
+  for e in args.env:
+    key, value = e.split('=', maxsplit=1)
+    env[key] = value
+
+  #
+  # Find tools
+  #
+
+  cmake = find_tool('cmake')
+  conan = find_tool('conan')
+  git = find_tool('git')
+
+  if os.name != 'nt':
+    ninja = find_tool('ninja')
+
+    try:
+      gcc = os.environ['CC']
+    except KeyError:
+      if args.arch == 'armv7hf':
+        gcc = find_tool('arm-linux-gnueabihf-gcc')
+      elif args.arch == 'armv8':
+        gcc = find_tool('aarch64-linux-gnu-gcc')
+      else:
+        gcc = find_tool('gcc')
+
+    env.update({
+        'CC': gcc,
+        'CXX': env.get('CXX', os.path.join(os.path.dirname(gcc), 'g++'))
+      })
+
+  #
+  # Check python modules
+  #
+
+  for module in ['scp']:
+    check_python_module(module)
+
+  try:
+    #
+    # Setup build directory
+    #
+
+    build_directory = os.path.abspath(args.build_directory)
+    os.makedirs(build_directory, exist_ok=True)
+
+    #
+    # Setup out directory
+    #
+
+    out_directory = os.path.abspath('out')
+    # shutil.rmtree(out_directory, ignore_errors=True)
+    os.makedirs(out_directory, exist_ok=True)
+    os.makedirs(out_directory+'/bin', exist_ok=True)
+    os.makedirs(out_directory+'/lib', exist_ok=True)
+    os.makedirs(out_directory+'/share', exist_ok=True)
+    os.makedirs(out_directory+'/nn_model', exist_ok=True)
+    os.makedirs(out_directory+'/face_model', exist_ok=True)
+
+    #
+    # Update conan dependencies
+    #
+
+    if not args.skip_conan:
+      print('-- Running conan...')
+      compiler_version = args.compiler_version if args.compiler_version else determine_compiler_version(args.compiler)
+
+      platform_args = []
+      if os.name == 'nt':
+        platform_args = ['-pr', '../profiles/windows']
+      else:
+        platform_args = ['-s', 'compiler.libcxx=libstdc++11']
+        if args.package == 'core-embedded-sdk':
+          platform_args += ['-pr', '../profiles/embedded']
+
+      call([
+            conan,
+            'install',
+            '--update',
+            '--build=missing',
+            '-s', 'build_type=' + args.build_type,
+            '-s', 'compiler=' + args.compiler,
+            '-s', 'compiler.version=' + compiler_version,
+            '-s', 'arch=' + args.arch,
+          ] + platform_args + [
+            '..'
+          ],
+          cwd=build_directory,
+          env=env)
+
+    #
+    # Configure cmake
+    #
+
+    print('-- Configuring cmake...')
+    call([
+          cmake,
+          '-Wno-dev',
+          '-G', args.generator,
+          '-DCMAKE_BUILD_TYPE=' + args.build_type,
+          '-DBUILD_PACKAGE=' + args.package
+        ] +
+        ['-D' + d for d in args.define] +
+        ['..'],
+        cwd=build_directory,
+        env=env)
+
+  except subprocess.CalledProcessError:
+    sys.exit(1)

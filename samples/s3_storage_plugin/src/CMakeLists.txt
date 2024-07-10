@@ -2,10 +2,13 @@
 
 cmake_minimum_required(VERSION 3.13)
 
-set(SERVICE_NAME s3)
-set(SERVICE_COMPONENTS s3)
+#set(AWSSDK_DIR, "/home/user/vca/NX_s3_integration/lib/aws/")
+#set(SERVICE_NAME s3)
+#set(SERVICE_COMPONENTS s3)
 
-project(s3_storage_plugin)
+#
+# Conan
+#
 
 # Build shared libraries by default.
 set(BUILD_SHARED_LIBS ON)
@@ -22,24 +25,34 @@ if(WINDOWS_BUILD)
     list(APPEND CMAKE_PREFIX_PATH ${SYSTEM_MODULE_PATH})
 endif()
 
-find_package(AWSSDK REQUIRED COMPONENTS ${SERVICE_COMPONENTS})
-find_package(CURL REQUIRED)
-if(NOT WIN32)
-   find_package(ZLIB REQUIRED)
-endif()
+#find_package(AWSSDK REQUIRED COMPONENTS ${SERVICE_COMPONENTS})
+#find_package(CURL REQUIRED)
+#if(NOT WIN32)
+#   find_package(ZLIB REQUIRED)
+#endif()
+
+set(THREADS_PREFER_PTHREAD_FLAG ON)
+find_package(Threads REQUIRED)
+set(ARMV8_LIB_ROOT "../../../lib/")
 
 Message(STATUS "All linked libs: ${AWSSDK_LINK_LIBRARIES} ")
 Message(STATUS "All platform libs: ${AWSSDK_PLATFORM_DEPS} ")
 Message(STATUS "current cmake directory ${CMAKE_CURRENT_SOURCE_DIR}")
 
-file(GLOB_RECURSE source_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*)
-add_library(s3_storage_plugin SHARED ${source_files} )
+#file(GLOB_RECURSE source_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*)
+FILE(GLOB TARGET_H "${CMAKE_SOURCE_DIR}/*.h")
+FILE(GLOB TARGET_CPP "${CMAKE_SOURCE_DIR}/*.cpp")
+FILE(GLOB TARGET_HPP "${CMAKE_SOURCE_DIR}/*.hpp")
+
+add_library(s3_storage_plugin SHARED ${TARGET_H} ${TARGET_CPP} ${TARGET_HPP} )
 
 target_include_directories(s3_storage_plugin PRIVATE
     ../../../src #< SDK headers.
-    ${AWSSDK_INCLUDE_DIRS}
-    ../../../lib/jsoncpp/include
-    E:/vcpkg-master/installed/x64-windows-static/include)
+    ${ARMV8_LIB_ROOT}aws/include
+    ${ARMV8_LIB_ROOT}armv8-a/curl-7.80.0/pkg/include
+    ${ARMV8_LIB_ROOT}armv8-a/openssl/include
+    ${ARMV8_LIB_ROOT}armv8-a/zlib/include
+    ${ARMV8_LIB_ROOT}/jsoncpp/include)
     
 if(WIN32)
     set(API_IMPORT_MACRO "__declspec(dllimport)")
@@ -74,6 +87,7 @@ else()
     			   LINK_FLAGS "-Wl,-z,defs")
 endif()
 
+
 if(WINDOWS_BUILD)
     list(FIND AWSSDK_CLIENT_LIBS "curl" CONTAINS_CURL)
     if (CONTAINS_CURL EQUAL 0)
@@ -82,6 +96,19 @@ if(WINDOWS_BUILD)
     endif()
 endif()
 
+target_link_directories(
+  s3_storage_plugin
+  PRIVATE
+  ${ARMV8_LIB_ROOT}armv8-a/curl-7.80.0/usr/lib
+  ${ARMV8_LIB_ROOT}armv8-a/libidn2/usr/lib
+  ${ARMV8_LIB_ROOT}armv8-a/libnghttp2/usr/lib
+  ${ARMV8_LIB_ROOT}armv8-a/libssh2/usr/lib
+  ${ARMV8_LIB_ROOT}armv8-a/libunistring/usr/lib
+  ${ARMV8_LIB_ROOT}armv8-a/openssl/usr/lib
+  ${ARMV8_LIB_ROOT}armv8-a/zlib/usr/lib
+  ${ARMV8_LIB_ROOT}aws/lib
+)
+
 if(WINDOWS_BUILD)
     target_link_libraries(s3_storage_plugin PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/jsoncpp/build/lib/Release/jsoncpp_static.lib
@@ -89,7 +116,27 @@ if(WINDOWS_BUILD)
         #${AWSSDK_PLATFORM_DEPS}
         CURL::libcurl)
 else()
-    target_link_libraries(s3_storage_plugin PRIVATE 
-   	${AWSSDK_LINK_LIBRARIES} 
-   	${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/jsoncpp/build/lib/libjsoncpp.a)
+    target_link_libraries(s3_storage_plugin PRIVATE
+	${CMAKE_CURRENT_SOURCE_DIR}/${ARMV8_LIB_ROOT}jsoncpp/lib/libjsoncpp.a 
+        crypto
+  	curl
+  	ssl
+  	z
+	dl
+  	Threads::Threads
+	aws-cpp-sdk-s3
+	aws-cpp-sdk-core
+	aws-crt-cpp
+	aws-c-s3
+	aws-c-auth
+	aws-c-http
+	aws-c-compression
+	aws-c-io
+	aws-c-cal
+	aws-c-sdkutils
+	aws-checksums
+	aws-c-event-stream
+	aws-c-mqtt
+	aws-c-common
+	s2n)
 endif()
