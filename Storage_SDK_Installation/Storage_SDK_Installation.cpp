@@ -1,5 +1,4 @@
-﻿// Storage_SDK_Installation.cpp : Defines the entry point for the application.
-//
+
 
 #include <openssl/aes.h>
 #include <openssl/rand.h>
@@ -39,6 +38,65 @@ std::string string_to_hex(const std::string& input) {
     return hex_stream.str();
 }
 
+std::string encryption_str(const std::string input) {
+
+    unsigned char ckey[16] = "*&^%$#@!$%^&#*^";
+    const char ivecstr[AES_BLOCK_SIZE] = "NXStorageSDK\0";
+
+    unsigned char ivec_enc[AES_BLOCK_SIZE];
+    memcpy(ivec_enc, ivecstr, AES_BLOCK_SIZE);
+
+    /* data structure that contains the key itself */
+    AES_KEY keyEn;
+
+    unsigned char enc[AES_BLOCK_SIZE];
+    memset(enc, '\0', AES_BLOCK_SIZE);
+
+
+    /* set the encryption key */
+    AES_set_encrypt_key(ckey, 128, &keyEn);
+
+    /* set where on the 128 bit encrypted block to begin encryption*/
+    int num = 0;
+    int plaintext_len = input.size();
+
+    AES_cfb128_encrypt(reinterpret_cast<const unsigned char*>(input.c_str()), enc, plaintext_len, &keyEn, ivec_enc, &num, AES_ENCRYPT);
+
+    std::string pwd_str(reinterpret_cast<char*>(enc), std::strlen(reinterpret_cast<char*>(enc)));
+
+
+    return pwd_str;
+}
+
+std::string decryption_str(const std::string input) {
+
+    unsigned char ckey[16] = "*&^%$#@!$%^&#*^";
+    const char ivecstr[AES_BLOCK_SIZE] = "NXStorageSDK\0";
+
+    unsigned char ivec_enc[AES_BLOCK_SIZE];
+    memcpy(ivec_enc, ivecstr, AES_BLOCK_SIZE);
+
+    /* data structure that contains the key itself */
+    AES_KEY keyEn;
+
+    unsigned char enc[AES_BLOCK_SIZE];
+    memset(enc, '\0', AES_BLOCK_SIZE);
+
+
+    /* set the encryption key */
+    AES_set_encrypt_key(ckey, 128, &keyEn);
+
+    /* set where on the 128 bit encrypted block to begin encryption*/
+    int num = 0;
+    int plaintext_len = input.size();
+
+    AES_cfb128_encrypt(reinterpret_cast<const unsigned char*>(input.c_str()), enc, plaintext_len, &keyEn, ivec_enc, &num, AES_DECRYPT);
+
+    std::string pwd_str(reinterpret_cast<char*>(enc), std::strlen(reinterpret_cast<char*>(enc)));
+
+    return pwd_str;
+}
+
 int main()
 {
     std::cout << "Start Configuring storage sdk" << std::endl;
@@ -48,18 +106,9 @@ int main()
     std::string host = "localhost:7001";
     std::string OEM_name = "Nx Witness";
 
-    unsigned char ckey[16] = "*&^%$#@!$%^&#*^";
-    const char ivecstr[AES_BLOCK_SIZE] = "NXStorageSDK\0";
-
-    unsigned char ivec_enc_pass[AES_BLOCK_SIZE];
-    memcpy(ivec_enc_pass, ivecstr, AES_BLOCK_SIZE);
-
-    unsigned char ivec_enc_oem[AES_BLOCK_SIZE];
-    memcpy(ivec_enc_oem, ivecstr, AES_BLOCK_SIZE);
-
 
     std::string tmp;
-    std::cout << "Enter host[deafult is localhost:7001]: ";
+    std::cout << "Enter host[default is localhost:7001]: ";
     std::getline(std::cin, tmp);
 
     if (!tmp.empty())
@@ -82,36 +131,11 @@ int main()
         return -1;
     }
 
-    /* data structure that contains the key itself */
-    AES_KEY keyEn;
+    std::string pwd_str = encryption_str(password);
+    std::string oem_str = encryption_str(OEM_name);
+//    std::cout << "pwd_str:" << pwd_str << ", oem_str:" << oem_str << std::endl;
 
-    int bytes_read;
-    unsigned char indata[AES_BLOCK_SIZE];
-    unsigned char enc_pass[AES_BLOCK_SIZE];
-    unsigned char enc_oem[AES_BLOCK_SIZE];
-
-    /* set the encryption key */
-    AES_set_encrypt_key(ckey, 128, &keyEn);
-
-    /* set where on the 128 bit encrypted block to begin encryption*/
-    int num = 0;
-
-    strcpy((char*)indata, password.c_str());
-    bytes_read = sizeof(indata);
-
-    AES_cfb128_encrypt(indata, enc_pass, bytes_read, &keyEn, ivec_enc_pass, &num, AES_ENCRYPT);
-
-    strcpy((char*)indata, OEM_name.c_str());
-    bytes_read = sizeof(indata);
-
-    AES_cfb128_encrypt(indata, enc_oem, bytes_read, &keyEn, ivec_enc_oem, &num, AES_ENCRYPT);
-
-    std::cout << "enc_pass:" << enc_pass << ", enc_oem:" << enc_oem << std::endl;
-
-    std::string pwd_str(reinterpret_cast<char*>(enc_pass), std::strlen(reinterpret_cast<char*>(enc_pass)));
-    std::string oem_str(reinterpret_cast<char*>(enc_oem), std::strlen(reinterpret_cast<char*>(enc_oem)));
-
-    std::cout << "pwd_str:" << pwd_str << ", oem_str:" << oem_str << std::endl;
+//    std::cout << "de pwd_str:" << decryption_str(pwd_str) << ", de oem_str:" << decryption_str(oem_str) << std::endl;
 
     Json::Value root;
     root["host"] = host;
@@ -119,14 +143,14 @@ int main()
     root["password"] = string_to_hex(pwd_str);
     root["OEM"] = string_to_hex(oem_str);
 
-    if (fs::exists("licence.json"))
+    if (fs::exists("license.config"))
     {
-        remove("licence.json");
+        remove("license.config");
     }
 
-    std::ofstream outputFile("licence.json");
+    std::ofstream outputFile("license.config");
     if (!outputFile.is_open()) {
-        std::cerr << "Error opening JSON file: licence.json" << std::endl;
+        std::cerr << "Error opening JSON file: license.json" << std::endl;
         return -1;
     }
     else
@@ -137,6 +161,7 @@ int main()
     }
 
     std::cout << "Configuration has been done successfully" << std::endl;
+
 
     return 0;
 }

@@ -301,8 +301,8 @@ namespace nx_spl
         bool isSessionExpired(const std::string &host,std::string& token) const;
 
         
-        std::string hex_to_string(const std::string& hex_input);
-        std::string decrypt_string(const std::string& input);
+        std::string hex_to_string(const std::string hex_input);
+        std::string decrypt_string(const std::string input);
 
     private:
         Aws::SDKOptions m_options;

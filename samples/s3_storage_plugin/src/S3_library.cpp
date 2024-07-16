@@ -996,7 +996,7 @@ namespace nx_spl
         return ret;
     }
 
-    std::string nx_spl::S3StorageFactory::hex_to_string(const std::string &hex_input)
+    std::string nx_spl::S3StorageFactory::hex_to_string(const std::string hex_input)
     {
         std::string output;
         for (size_t i = 0; i < hex_input.length(); i += 2) 
@@ -1008,31 +1008,33 @@ namespace nx_spl
         return output;
     }
 
-    std::string nx_spl::S3StorageFactory::decrypt_string(const std::string &input)
+    std::string nx_spl::S3StorageFactory::decrypt_string(const std::string input)
     {
         std::string str_value = hex_to_string(input);
 
         unsigned char ckey[16] = "*&^%$#@!$%^&#*^";
         const char ivecstr[AES_BLOCK_SIZE] = "NXStorageSDK\0";
-        unsigned char ivec_dec[AES_BLOCK_SIZE];
-        memcpy(ivec_dec, ivecstr, AES_BLOCK_SIZE);
 
-        int num = 0;
+        unsigned char ivec_enc[AES_BLOCK_SIZE];
+        memcpy(ivec_enc, ivecstr, AES_BLOCK_SIZE);
 
+        /* data structure that contains the key itself */
         AES_KEY keyEn;
+
+        unsigned char enc[AES_BLOCK_SIZE];
+        memset(enc, '\0', AES_BLOCK_SIZE);
+
+
         /* set the encryption key */
         AES_set_encrypt_key(ckey, 128, &keyEn);
 
-        int bytes_read;
-        unsigned char indata[AES_BLOCK_SIZE];
-        unsigned char outdata[AES_BLOCK_SIZE];
+        /* set where on the 128 bit encrypted block to begin encryption*/
+        int num = 0;
+        int plaintext_len = str_value.size();
 
-        strcpy((char*)indata, str_value.c_str());
-        bytes_read = sizeof(indata);
+        AES_cfb128_encrypt(reinterpret_cast<const unsigned char*>(str_value.c_str()), enc, plaintext_len, &keyEn, ivec_enc, &num, AES_DECRYPT);
 
-        AES_cfb128_encrypt(indata, outdata, bytes_read, &keyEn, ivec_dec, &num, AES_DECRYPT);
-
-        std::string decrypted_str(reinterpret_cast<char*>(outdata), std::strlen(reinterpret_cast<char*>(outdata)));
+        std::string decrypted_str(reinterpret_cast<char*>(enc), std::strlen(reinterpret_cast<char*>(enc)));
 
         return decrypted_str;
     }
