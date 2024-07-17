@@ -182,12 +182,13 @@ namespace nx_spl
 
         if((m_impl.get() != nullptr) && m_impl.get()->establishS3Connection())
         {
+            INFOLOG("=====================>");
             m_available = true;
+            m_totalSpace = S3_DEFAULT_TOTAL_SPACE;
             std::ifstream jsonFile(S3_CONFIG_FILE);
             if (!jsonFile.is_open()) 
             {
                 ERRORLOG("Error opening config file:",S3_CONFIG_FILE);
-                m_totalSpace = S3_DEFAULT_TOTAL_SPACE;
             }
             else
             {
@@ -205,6 +206,7 @@ namespace nx_spl
                         {
                             std::string url = s3storageObject["url"].asString();
                             std::string bucket = s3storageObject["bucket"].asString();
+                            INFOLOG("u.host",u.host, "url",url, "bucket",u.path, bucket);
                             if((u.host == url) && (u.path == bucket))
                             {
                                 m_totalSpace = s3storageObject["size"].asUInt64();
@@ -213,6 +215,10 @@ namespace nx_spl
                                 storageFound = true;
                                 break;
                             }
+                        }
+                        if(storageFound == false)
+                        {
+                            INFOLOG("Storage not found",u.host,u.path);
                         }
                     }
                     else

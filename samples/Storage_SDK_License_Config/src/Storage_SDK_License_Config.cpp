@@ -105,9 +105,10 @@ int main(int argc, char* argv[])
     std::string password;
     std::string host = "localhost:7001";
     std::string OEM_name;
-    if(argc == 1)
-        OEM_name = argv[0]; //"Nx Witness";
-
+    if(argc > 1)
+    {
+        OEM_name = argv[1]; //"Nx Witness";
+    }
 
     std::string tmp;
     std::cout << "Enter host[default is localhost:7001]: ";
@@ -135,8 +136,8 @@ int main(int argc, char* argv[])
 
     std::string pwd_str = encryption_str(password);
     std::string oem_str;
-    if(!OEM_name.empty())
-        encryption_str(OEM_name);
+    if(OEM_name.empty() == false)
+        oem_str = encryption_str(OEM_name);
 //    std::cout << "pwd_str:" << pwd_str << ", oem_str:" << oem_str << std::endl;
 //    std::cout << "de pwd_str:" << decryption_str(pwd_str) << ", de oem_str:" << decryption_str(oem_str) << std::endl;
     Json::Value root;
