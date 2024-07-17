@@ -1,5 +1,7 @@
 #include "ServerManager.h"
 #include <curl/curl.h>
+#include <openssl/aes.h>
+#include <openssl/rand.h>
 
 ServerManager* ServerManager::m_serverPtr = nullptr;
 
@@ -123,7 +125,11 @@ bool ServerManager::loadServerCredential()
         {
             m_host = root["host"].asString();
             m_user = root["username"].asString();
-            m_password = root["password"].asString();
+            std::string nxTemp = root["password"].asString();
+            m_password = decrypt_string(nxTemp);
+            std::string nxOEM = root["OEM"].asString();
+            if(!nxOEM.empty())
+                m_OEM = decrypt_string(nxOEM);
             ret = !m_host.empty() && !m_user.empty() && !m_password.empty() ;
         }
     }
@@ -294,8 +300,7 @@ bool ServerManager::verifyLicense()
         {
             INFOLOG("------->",response);
             INFOLOG("------->",headerResponse);
-            g_VMS = headerResponse;
-            if(headerResponse.find("Nx Witness") != std::string::npos)
+            if(m_OEM.empty() || (headerResponse.find(m_OEM) != std::string::npos))
             {
                 Json::Value jsonData;
                 Json::CharReaderBuilder jsonReaderBuilder;
@@ -334,37 +339,27 @@ bool ServerManager::verifyLicense()
                             {
                                 std::string expirationValue = licenseObject["EXPIRATION"].asString();
                                 INFOLOG("---EXPIRATION---->",expirationValue);
+                                std::time_t rawTime;
+                                std::tm* timeInfo;
+                                char buffer[80];
 
-                                // if(expirationValue.empty())
-                                // {
-                                //     INFOLOG("***Valid license***");
-                                //     licenseAvailable = true;
-                                //     break;
-                                // }
-                                // else
-                                // {
-                                    std::time_t rawTime;
-                                    std::tm* timeInfo;
-                                    char buffer[80];
+                                std::time(&rawTime);
+                                timeInfo = std::localtime(&rawTime);
 
-                                    std::time(&rawTime);
-                                    timeInfo = std::localtime(&rawTime);
+                                std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
+                                std::string timestamp(buffer);
 
-                                    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-                                    std::string timestamp(buffer);
-
-                                    if(timestamp <= expirationValue)
-                                    {
-                                        INFOLOG("***Valid license***");
-                                        licenseAvailable = true;
-                                        break;
-                                    }
-                                    else
-                                    {
-                                        INFOLOG("Invalid license");
-                                        licenseAvailable = false;
-                                    }
-                                // }
+                                if(timestamp <= expirationValue)
+                                {
+                                    INFOLOG("***Valid license***");
+                                    licenseAvailable = true;
+                                    break;
+                                }
+                                else
+                                {
+                                    INFOLOG("Invalid license");
+                                    licenseAvailable = false;
+                                }
                             } 
                             else 
                             {
@@ -389,6 +384,50 @@ bool ServerManager::verifyLicense()
     }
     return licenseAvailable;
 }
+
+std::string ServerManager::hex_to_string(const std::string hex_input)
+{
+    std::string output;
+    for (size_t i = 0; i < hex_input.length(); i += 2) 
+    {
+        std::string byte = hex_input.substr(i, 2);
+        char chr = (char)(int)strtol(byte.c_str(), nullptr, 16);
+        output.push_back(chr);
+    }
+    return output;
+}
+
+std::string ServerManager::decrypt_string(const std::string input)
+{
+    std::string str_value = hex_to_string(input);
+
+    unsigned char ckey[16] = "*&^%$#@!$%^&#*^";
+    const char ivecstr[AES_BLOCK_SIZE] = "NXStorageSDK\0";
+
+    unsigned char ivec_enc[AES_BLOCK_SIZE];
+    memcpy(ivec_enc, ivecstr, AES_BLOCK_SIZE);
+
+    /* data structure that contains the key itself */
+    AES_KEY keyEn;
+
+    unsigned char enc[AES_BLOCK_SIZE];
+    memset(enc, '\0', AES_BLOCK_SIZE);
+
+
+    /* set the encryption key */
+    AES_set_encrypt_key(ckey, 128, &keyEn);
+
+    /* set where on the 128 bit encrypted block to begin encryption*/
+    int num = 0;
+    int plaintext_len = str_value.size();
+
+    AES_cfb128_encrypt(reinterpret_cast<const unsigned char*>(str_value.c_str()), enc, plaintext_len, &keyEn, ivec_enc, &num, AES_DECRYPT);
+
+    std::string decrypted_str(reinterpret_cast<char*>(enc), std::strlen(reinterpret_cast<char*>(enc)));
+
+    return decrypted_str;
+}
+
 
 void ServerManager::updateLicenseDetail()
 {

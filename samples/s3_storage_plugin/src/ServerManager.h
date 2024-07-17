@@ -21,6 +21,8 @@ class ServerManager
     bool createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string& token) const;
     bool isSessionExpired(const std::string &host,std::string& token) const;
     bool verifyLicense();
+    std::string hex_to_string(const std::string hex_input);
+    std::string decrypt_string(const std::string input);
 
     private:
     static ServerManager* m_serverPtr;
@@ -30,6 +32,7 @@ class ServerManager
     std::string m_host;
     std::string m_user;
     std::string m_password;
+    std::string m_OEM;
     std::string m_token;
     Timer m_timer;
 };
