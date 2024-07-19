@@ -7,7 +7,7 @@ set BASE_DIR_WITH_BACKSLASH=%~dp0
 set BASE_DIR=%BASE_DIR_WITH_BACKSLASH:~0,-1%
 
 @echo off
-%BASE_DIR%/Storage_SDK_License_Config.exe "DW Spectrum"
+%BASE_DIR%/Storage_SDK_License_Config.exe "6bc96cb9bb0a54d43615c4"
 pause
 
 set ARTIFACT="license.config"
