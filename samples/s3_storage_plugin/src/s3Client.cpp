@@ -984,7 +984,7 @@ std::string s3Client::getNextFileToUpload()
     }
     else
     {
-        ERRORLOG("Error opening JSON file:",file.fullPath);
+        DEBUGLOG("Error opening JSON file:",file.fullPath);
     }
     return fileName;
 }
