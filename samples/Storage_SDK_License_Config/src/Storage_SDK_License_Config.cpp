@@ -105,9 +105,26 @@ int main(int argc, char* argv[])
     std::string password;
     std::string host = "localhost:7001";
     std::string OEM_name;
-    if(argc > 1)
+    if(argc == 2)
     {
         OEM_name = argv[1]; //"Nx Witness";
+        std::string str_hex = hex_to_string(OEM_name);
+        std::string dec_OEM = decryption_str(str_hex);
+        // std::cout << "before decrypt OEM_name: " << OEM_name << std::endl;
+        if(dec_OEM == "Data Motion")
+        {
+            OEM_name = "";
+        }
+        else
+        {
+            OEM_name = dec_OEM;
+        } 
+        // std::cout << "after decrypt OEM_name: " << OEM_name << std::endl;
+    }
+    else
+    {
+        std::cerr << "use ./Hax_Key_generator OEM_Name " << std::endl;
+        return -1;
     }
 
     std::string tmp;

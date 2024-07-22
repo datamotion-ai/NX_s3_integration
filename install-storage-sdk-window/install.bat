@@ -7,7 +7,7 @@ set BASE_DIR_WITH_BACKSLASH=%~dp0
 set BASE_DIR=%BASE_DIR_WITH_BACKSLASH:~0,-1%
 
 @echo off
-%BASE_DIR%/Storage_SDK_License_Config.exe "Wisenet WAVE"
+%BASE_DIR%/Storage_SDK_License_Config.exe "78f73f8fa50a43801321ffbe"
 pause
 
 set ARTIFACT="license.config"
