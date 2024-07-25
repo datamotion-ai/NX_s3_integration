@@ -127,9 +127,20 @@ bool ServerManager::loadServerCredential()
             m_user = root["username"].asString();
             std::string nxTemp = root["password"].asString();
             m_password = decrypt_string(nxTemp);
-            std::string nxOEM = root["OEM"].asString();
-            if(!nxOEM.empty())
-                m_OEM = decrypt_string(nxOEM);
+            if(root["OEM"].isArray())
+            {
+                Json::Value& oemArray = root["OEM"];
+                if(oemArray.empty() == false)
+                {
+                    for(int i=0; i< oemArray.size();i++)
+                    {
+                        std::string oem = oemArray[i].asString();
+                        std::string dec_oem = decrypt_string(oem);
+                        INFOLOG("supported OEMs:",dec_oem);
+                        m_OEM.push_back(dec_oem);
+                    }
+                }
+            }
             ret = !m_host.empty() && !m_user.empty() && !m_password.empty() ;
         }
     }
@@ -300,7 +311,7 @@ bool ServerManager::verifyLicense()
         {
             INFOLOG("------->",response);
             INFOLOG("------->",headerResponse);
-            if(m_OEM.empty() || (headerResponse.find(m_OEM) != std::string::npos))
+            if(verifyOEM(headerResponse))
             {
                 Json::Value jsonData;
                 Json::CharReaderBuilder jsonReaderBuilder;
@@ -428,6 +439,27 @@ std::string ServerManager::decrypt_string(const std::string input)
     return decrypted_str;
 }
 
+bool ServerManager::verifyOEM(const std::string headerResponse)
+{
+    DEBUGLOG("ServerManager::verifyOEM",headerResponse);
+    bool validOEM = false;
+    if(m_OEM.empty() == true)
+    {
+        validOEM = true;
+    }
+    else
+    {
+        for(int i= 0; i < m_OEM.size(); i++)
+        {
+            if(headerResponse.find(m_OEM[i]) != std::string::npos)
+            {
+                validOEM = true;
+                break;
+            }
+        }
+    }
+    return validOEM;
+}
 
 void ServerManager::updateLicenseDetail()
 {

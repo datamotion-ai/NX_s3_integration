@@ -104,22 +104,26 @@ int main(int argc, char* argv[])
     std::string username;
     std::string password;
     std::string host = "localhost:7001";
-    std::string OEM_name;
-    if(argc == 2)
+    std::vector<std::string> OEM_name;
+    if(argc >= 2)
     {
-        OEM_name = argv[1]; //"Nx Witness";
-        std::string str_hex = hex_to_string(OEM_name);
-        std::string dec_OEM = decryption_str(str_hex);
-        // std::cout << "before decrypt OEM_name: " << OEM_name << std::endl;
-        if(dec_OEM == "Data Motion")
+        for(int i = 1; i < argc; i++)
         {
-            OEM_name = "";
+            std::string OEM = argv[i]; //"Nx Witness";
+            // std::cout << "before decrypt OEM_name: " << OEM << std::endl;
+            std::string str_hex = hex_to_string(OEM);
+            std::string dec_OEM = decryption_str(str_hex);
+            // std::cout << "after decrypt OEM_name: " << dec_OEM << std::endl;
+            if(dec_OEM == "Data Motion")
+            {
+                OEM_name.clear();
+                break;
+            }
+            else
+            {
+                OEM_name.push_back(dec_OEM);
+            }
         }
-        else
-        {
-            OEM_name = dec_OEM;
-        } 
-        // std::cout << "after decrypt OEM_name: " << OEM_name << std::endl;
     }
     else
     {
@@ -152,16 +156,21 @@ int main(int argc, char* argv[])
     }
 
     std::string pwd_str = encryption_str(password);
-    std::string oem_str;
-    if(OEM_name.empty() == false)
-        oem_str = encryption_str(OEM_name);
-//    std::cout << "pwd_str:" << pwd_str << ", oem_str:" << oem_str << std::endl;
-//    std::cout << "de pwd_str:" << decryption_str(pwd_str) << ", de oem_str:" << decryption_str(oem_str) << std::endl;
+//    std::cout << "pwd_str:" << pwd_str  << std::endl;
+//    std::cout << "de pwd_str:" << decryption_str(pwd_str) << std::endl;
     Json::Value root;
     root["host"] = host;
     root["username"] = username;
     root["password"] = string_to_hex(pwd_str);
-    root["OEM"] = string_to_hex(oem_str);
+    Json::Value oemArray(Json::arrayValue);
+    
+    for(int i =0; i < OEM_name.size(); i++)
+    {
+        std::string oem_enc_str = encryption_str(OEM_name[i]);
+        std::string oem_hex_str = string_to_hex(oem_enc_str);
+        oemArray.append(oem_hex_str);
+    }
+    root["OEM"] = oemArray;
 
     if (fs::exists("license.config"))
     {

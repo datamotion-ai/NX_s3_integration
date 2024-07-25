@@ -5,15 +5,35 @@ set -u #< Prohibit undefined variables.
 
 echo "Settingup sdk .."
 
-systemctl stop hanwha-mediaserver.service
+apt-get install libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev libpulse-dev zenity
 
-apt-get install libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev libpulse-dev
-./Storage_SDK_License_Config "78f73f8fa50a43801321ffbe"
-cp license.config /opt/hanwha/mediaserver/bin/
-cp s3.config /opt/hanwha/mediaserver/bin/
-cp libs3_storage_plugin.so /opt/hanwha/mediaserver/bin/plugins/
+license_file="license.config"
 
-systemctl start hanwha-mediaserver.service
+if [[ -f "$license_file" ]]; then
+    rm -f $license_file
+fi
 
-echo "Settingup sdk done"
+./Storage_SDK_License_Config "61e66cbda21b59c53713" "6bc96cb9bb0a54d43615c4" "78f73f8fa50a43801321ffbe" "7ff72785"
+
+if [[ -f "$license_file" ]]; then
+
+    selected_folder=$(zenity --file-selection --directory --title="Select mediaserver folder")
+
+    if [[ -z "$selected_folder" ]]; then
+        echo "No folder was selected."
+        exit 1
+    fi
+
+    echo "Selected folder: $selected_folder"
+
+    cp $license_file $selected_folder/bin/
+    cp s3.config $selected_folder/bin/
+    cp libs3_storage_plugin.so $selected_folder/bin/plugins/
+
+    echo "Settingup sdk done"
+
+else
+    echo "File $license_file does not exist."
+    exit 1
+fi
 

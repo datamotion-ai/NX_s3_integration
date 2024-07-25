@@ -7,8 +7,7 @@ set BASE_DIR_WITH_BACKSLASH=%~dp0
 set BASE_DIR=%BASE_DIR_WITH_BACKSLASH:~0,-1%
 
 @echo off
-%BASE_DIR%/Storage_SDK_License_Config.exe "78f73f8fa50a43801321ffbe"
-pause
+%BASE_DIR%/Storage_SDK_License_Config.exe "61e66cbda21b59c53713" "6bc96cb9bb0a54d43615c4" "78f73f8fa50a43801321ffbe" "7ff72785"
 
 set ARTIFACT="license.config"
 if not exist "%ARTIFACT%" (
@@ -16,11 +15,35 @@ if not exist "%ARTIFACT%" (
     exit /b 70
 )
 
-copy %BASE_DIR%"\lib\*" "C:\Program Files\Hanwha\Wisenet WAVE\MediaServer\"
-copy ".\license.config" "C:\Program Files\Hanwha\Wisenet WAVE\MediaServer\"
-copy %BASE_DIR%"\s3.config" "C:\Program Files\Hanwha\Wisenet WAVE\MediaServer\"
-copy %BASE_DIR%"\s3_storage_plugin.dll" "C:\Program Files\Hanwha\Wisenet WAVE\MediaServer\plugins\"
+echo "Select MediaServer installation folder!!"
 
-echo "Settingup sdk ..Done"
+@echo off
+setlocal
 
+:: Use PowerShell to open a folder browser dialog
+set "psCommand="(new-object -COM 'Shell.Application')^
+.BrowseForFolder(0,'Please choose a folder.',0,0).self.path""
+for /f "usebackq delims=" %%I in (`powershell %psCommand%`) do set "folder=%%I"
+echo You selected: %folder%
+
+:: Check if the user selected a folder
+if "%folder%"=="" (
+    echo ERROR:"No folder was selected."
+) else (
+
+    if exist "%folder%\" (
+
+        copy %BASE_DIR%"\lib\*" "%folder%\"
+        copy ".\license.config" "%folder%\"
+        copy %BASE_DIR%"\s3.config" "%folder%\"
+        copy %BASE_DIR%"\s3_storage_plugin.dll" "%folder%\plugins\"
+
+        echo "Settingup sdk ..Done"
+
+    ) else (
+        echo ERROR:"folder not exist"
+    )
+)
+
+endlocal
 pause
