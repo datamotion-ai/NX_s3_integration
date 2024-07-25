@@ -7,19 +7,22 @@ echo "Settingup sdk .."
 
 apt-get install libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev libpulse-dev zenity
 
-license_file="license.config"
+current_directory=$(pwd)
+echo "Current directory: $current_directory"
 
-if [[ -f "$license_file" ]]; then
+license_file="$current_directory/license.config"
+
+if [ -f $license_file ]; then
     rm -f $license_file
 fi
 
 ./Storage_SDK_License_Config "61e66cbda21b59c53713" "6bc96cb9bb0a54d43615c4" "78f73f8fa50a43801321ffbe" "7ff72785"
 
-if [[ -f "$license_file" ]]; then
+if [ -f $license_file ]; then
 
     selected_folder=$(zenity --file-selection --directory --title="Select mediaserver folder")
 
-    if [[ -z "$selected_folder" ]]; then
+    if [ -z $selected_folder ]; then
         echo "No folder was selected."
         exit 1
     fi
@@ -27,8 +30,8 @@ if [[ -f "$license_file" ]]; then
     echo "Selected folder: $selected_folder"
 
     cp $license_file $selected_folder/bin/
-    cp s3.config $selected_folder/bin/
-    cp libs3_storage_plugin.so $selected_folder/bin/plugins/
+    cp $current_directory/s3.config $selected_folder/bin/
+    cp $current_directory/libs3_storage_plugin.so $selected_folder/bin/plugins/
 
     echo "Settingup sdk done"
 
@@ -36,4 +39,3 @@ else
     echo "File $license_file does not exist."
     exit 1
 fi
-
