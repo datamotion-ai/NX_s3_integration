@@ -666,7 +666,7 @@ namespace nx_spl
     nx_spl::S3StorageFactory::S3StorageFactory()
     {
         INFOLOG("S3StorageFactory::S3StorageFactory");
-        m_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Error;
+        m_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Fatal;
         Aws::InitAPI(m_options);
         std::srand((unsigned int) time(0));
         m_timer.start(this, &S3StorageFactory::verifyLicenses,ONE_MINUTE);
