@@ -26,14 +26,18 @@ void ClearMemoryManager::addFileToRemoveList(std::string strFile)
 {
     std::lock_guard<std::mutex> lock(m_mutex);
     DEBUGLOG("ClearMemoryManager::addFileToRemoveList");
-    auto it = std::find(m_removeFileList.begin(), m_removeFileList.end(), strFile);
-    if (it == m_removeFileList.end()) 
+    auto it = std::find(m_writeFileList.begin(), m_writeFileList.end(), strFile);
+    if (it == m_writeFileList.end()) 
     {
-        if(m_removeFileList.size() >= 10)
+        auto it = std::find(m_removeFileList.begin(), m_removeFileList.end(), strFile);
+        if (it == m_removeFileList.end()) 
         {
-            clearMemory();
+            if(m_removeFileList.size() >= 10)
+            {
+                clearMemory();
+            }
+            m_removeFileList.push_back(strFile); 
         }
-        m_removeFileList.push_back(strFile); 
     }
 }
 
@@ -45,6 +49,28 @@ void ClearMemoryManager::deleteFileFromRemoveList(std::string strFile)
     if (it != m_removeFileList.end()) 
     {
         m_removeFileList.erase(it); 
+    }
+}
+
+void ClearMemoryManager::addFileToWriteList(std::string strFile)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DEBUGLOG("ClearMemoryManager::addFileToWriteList");
+    auto it = std::find(m_writeFileList.begin(), m_writeFileList.end(), strFile);
+    if (it == m_writeFileList.end()) 
+    {
+        m_writeFileList.push_back(strFile); 
+    }
+}
+
+void ClearMemoryManager::deleteFileFromWriteList(std::string strFile)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    DEBUGLOG("ClearMemoryManager::deleteFileFromWriteList");
+    auto it = std::find(m_writeFileList.begin(), m_writeFileList.end(), strFile);
+    if (it != m_writeFileList.end()) 
+    {
+        m_writeFileList.erase(it); 
     }
 }
 

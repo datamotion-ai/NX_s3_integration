@@ -97,7 +97,7 @@ bool s3Client::establishS3Connection()
         
         if(bucketFound == true)
         {
-            INFOLOG("SuccessFully establish s3 connection with host: ");
+            INFOLOG("SuccessFully establish s3 connection with host: ",m_url + "/" + m_bucket);
             return true;
         }
     }
@@ -804,6 +804,7 @@ void s3Client::fileUploadThread()
                 if (!*inputData) 
                 {
                     ERRORLOG("Unable to read local file:",file.fullPath);
+                    fileUploaded = true;
                 }
                 else
                 {
@@ -821,11 +822,6 @@ void s3Client::fileUploadThread()
                     else 
                     {
                         INFOLOG("Successfully uploaded file:",file.fullPath,fileToUpload,m_bucket);
-                        if (remove(file.fullPath.c_str()) != 0) 
-                        {
-                            ERRORLOG("Failed to remove file:",file.fullPath.c_str());
-                            ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
-                        }
                         fileUploaded = true;
                     }
                 }
@@ -842,6 +838,11 @@ void s3Client::fileUploadThread()
         }
         if(fileUploaded)
         {
+            if (remove(file.fullPath.c_str()) != 0) 
+            {
+                ERRORLOG("Failed to remove file:",file.fullPath.c_str());
+                ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
+            }
             removeFileFromUploadList(fileToUpload);
         }
     }
@@ -942,7 +943,7 @@ void s3Client::updateRemoteFolderSize()
         m_totalSpaceUpdating = false;
     }
 
-    INFOLOG("Calculating Free space Done..");
+    INFOLOG("Calculating Free space Done..",m_space);
 }
 
 std::string s3Client::getNextFileToUpload()

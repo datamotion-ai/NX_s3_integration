@@ -29,7 +29,7 @@ namespace nx_spl
     nx_spl::S3StorageFactory::S3StorageFactory()
     {
         INFOLOG("S3StorageFactory::S3StorageFactory");
-        m_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Error;
+        m_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Fatal;
         Aws::InitAPI(m_options);
         std::srand((unsigned int) time(0));
         ClearMemoryManager::getInstance();
@@ -420,6 +420,7 @@ namespace nx_spl
 
         if(fs::exists(file.fullPath.c_str()))
         {
+            ClearMemoryManager::getInstance()->deleteFileFromWriteList(file.fullPath);
             if(remove(file.fullPath.c_str()) != 0)
             {
                 ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
@@ -498,6 +499,7 @@ namespace nx_spl
 
             if(fs::exists(oldFile.fullPath.c_str()))
             {
+                ClearMemoryManager::getInstance()->deleteFileFromWriteList(oldFile.fullPath);
                 if (!m_impl.get()->addFileToUploadInQueue(newUrl)) 
                 {
                     ERRORLOG("Failed to upload object",oldUrl,newUrl);
@@ -762,11 +764,14 @@ namespace nx_spl
                 ERRORLOG("Failed to open local file!!",m_localfile.fullPath);
                 throw aux::InternalErrorException("Failed to open local file");
             }
+            if(mode & io::WriteOnly)
+                ClearMemoryManager::getInstance()->addFileToWriteList(m_localfile.fullPath);
         }
         catch(...)
         {
             ERRORLOG("Error while IO operation",uri,mode);
-            ClearMemoryManager::getInstance()->addFileToRemoveList(m_localfile.fullPath);
+            if(!m_impl->isFileInUploadList(uri))
+                ClearMemoryManager::getInstance()->addFileToRemoveList(m_localfile.fullPath);
             throw ;
         }
         DEBUGLOG("--------------------------done");

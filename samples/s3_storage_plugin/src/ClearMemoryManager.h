@@ -11,6 +11,8 @@ class ClearMemoryManager
     static void deleteInstance();
     void addFileToRemoveList(std::string strFile);
     void deleteFileFromRemoveList(std::string strFile);
+    void addFileToWriteList(std::string strFile);
+    void deleteFileFromWriteList(std::string strFile);
 
     private:
     ClearMemoryManager();
@@ -20,6 +22,7 @@ class ClearMemoryManager
     private:
     static ClearMemoryManager* m_clManagerPtr;
     std::vector<std::string> m_removeFileList;
+    std::vector<std::string> m_writeFileList;
     std::mutex  m_mutex;
     Timer       m_timer;
 };
