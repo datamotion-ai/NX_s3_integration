@@ -190,10 +190,10 @@ void ClearMemoryManager::clearMemory()
                                         url = url.substr(0, last_underscore_pos);
                                         url.append(".mkv");
                                     }
-                                    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(std::string(url));
-                                    if(fs::exists(file.fullPath))
+                                    nx_spl::aux::FileNameAndPath file_name = nx_spl::aux::localUniqueFilePath(std::string(url));
+                                    if(fs::exists(file_name.fullPath))
                                     {
-                                        m_uploadingFiles.push_back(file.fullPath);
+                                        m_uploadingFiles.push_back(file_name.fullPath);
                                     }
                                 } 
                             }
