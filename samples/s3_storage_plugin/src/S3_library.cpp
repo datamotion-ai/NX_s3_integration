@@ -160,7 +160,7 @@ namespace nx_spl
     m_totalSpace(S3_DEFAULT_TOTAL_SPACE),
     m_tempbucketSize(0)
     {
-
+        DEBUGLOG("S3Storage::S3Storage");
         aux::Url u;
         try
         {
@@ -345,7 +345,7 @@ namespace nx_spl
         
         static bool spaceFullSet = false;
         uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
-        if(localFolderSize > DEFAULT_1_GB)
+        if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
         {
             if(spaceFullSet == false)
             {
@@ -383,7 +383,11 @@ namespace nx_spl
     {
         DEBUGLOG("S3Storage::getCapabilities");
         int ret = 0;
-        ret |= cap::WriteFile;
+        uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
+        if(localFolderSize < ServerManager::getInstance()->getLocalBufferSize())
+        {
+            ret |= cap::WriteFile;
+        }
         ret |= cap::ReadFile;
         ret |= cap::ListFile;
         ret |= cap::RemoveFile;

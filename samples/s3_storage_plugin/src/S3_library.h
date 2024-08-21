@@ -225,6 +225,7 @@ namespace nx_spl
 
     private:
         ~S3StorageFactory();
+        
     private:
         Aws::SDKOptions m_options;
         static std::mutex  m_mutex;
