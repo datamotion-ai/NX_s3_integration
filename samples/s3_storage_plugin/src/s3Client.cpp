@@ -18,7 +18,7 @@ m_reUpdateSpace(false),
 m_impl(nullptr),
 m_uploadImpl(nullptr),
 m_spaceImpl(nullptr),
-m_space(S3_DEFAULT_TOTAL_SPACE)
+m_space(0)
 {
     INFOLOG("s3Client",url,accessKey,secreatKey,bucket);
 }
@@ -808,7 +808,8 @@ void s3Client::fileUploadThread()
                 }
                 else
                 {
-                    INFOLOG("Uploading file!!",file.fullPath);
+                    uint64_t size = nx_spl::aux::getFileSize(file.fullPath.c_str());
+                    INFOLOG("Uploading file!!",file.name,size);
                     Aws::S3::Model::PutObjectRequest request;
                     request.SetBucket(m_bucket);
                     request.SetKey(fileToUpload);
@@ -834,7 +835,7 @@ void s3Client::fileUploadThread()
         else
         {
            ERRORLOG("File do not exist to uplaod!!",fileToUpload);
-           fileUploaded = true;
+           removeFileFromUploadList(fileToUpload);
         }
         if(fileUploaded)
         {
@@ -935,6 +936,8 @@ void s3Client::updateRemoteFolderSize()
     else 
     {
         ERRORLOG("Remote dir not exists",m_bucket,outcome.GetError().GetMessage().c_str());
+        std::lock_guard<std::mutex> lock(m_mutex);
+        m_reUpdateSpace = true;
     }
 
     {

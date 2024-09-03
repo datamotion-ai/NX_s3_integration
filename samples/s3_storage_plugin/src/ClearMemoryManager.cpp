@@ -134,7 +134,7 @@ void ClearMemoryManager::clearMemory()
                 {
                     if (fs::is_regular_file(entry)) 
                     {
-                        const std::string file(entry.path().string());
+                        const std::string file(entry.path().filename().string());
                         if ((file.find("UploadList.json") == std::string::npos) 
                             && (file.find("info.txt") == std::string::npos)
                             && (file.find(".nxdb") == std::string::npos))
@@ -143,10 +143,10 @@ void ClearMemoryManager::clearMemory()
                             auto it = std::find(m_uploadingFiles.begin(), m_uploadingFiles.end(), file);
                             if (it == m_uploadingFiles.end()) 
                             {
-                                INFOLOG("delete file:",entry.path().filename());
-                                if(remove(file.c_str()) != 0)
+                                INFOLOG("delete file:",file);
+                                if(remove(entry.path().string().c_str()) != 0)
                                 {
-                                    m_removeFileList.push_back(file);
+                                    m_removeFileList.push_back(entry.path().string());
                                 }
                             }
                         }
@@ -164,6 +164,7 @@ void ClearMemoryManager::clearMemory()
 
     void ClearMemoryManager::loadJsonFile(std::string filename)
     {
+        INFOLOG("ClearMemoryManager::loadJsonFile",filename);
         std::ifstream inputFile(filename);
         if (inputFile.is_open())
         {
@@ -171,7 +172,6 @@ void ClearMemoryManager::clearMemory()
             Json::Reader reader;
             if (reader.parse(inputFile, root)) 
             {
-                inputFile.close();
                 if(root.isArray())
                 {
                     for (auto& jsonObject : root) 
@@ -193,7 +193,8 @@ void ClearMemoryManager::clearMemory()
                                     nx_spl::aux::FileNameAndPath file_name = nx_spl::aux::localUniqueFilePath(std::string(url));
                                     if(fs::exists(file_name.fullPath))
                                     {
-                                        m_uploadingFiles.push_back(file_name.fullPath);
+                                        DEBUGLOG("m_uploadingFiles:",file_name.name);
+                                        m_uploadingFiles.push_back(file_name.name);
                                     }
                                 } 
                             }
@@ -209,6 +210,6 @@ void ClearMemoryManager::clearMemory()
         }
         else
         {
-            DEBUGLOG("Error opening JSON file:",file.fullPath);
+            DEBUGLOG("Error opening JSON file:",filename);
         }
     }

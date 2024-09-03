@@ -36,6 +36,10 @@ namespace nx_spl
             const implPtrType &impl
         );
 
+        ~S3IODevice();
+
+        bool intialise();
+
         virtual uint32_t STORAGE_METHOD_CALL write(
             const void*     src,
             const uint32_t  size,
@@ -65,8 +69,6 @@ namespace nx_spl
     private:
         // synchronize localfile with remote one
         void flush();
-        // delete only via releaseRef()
-        ~S3IODevice();
 
     private:
         int                     m_mode;
@@ -190,8 +192,7 @@ namespace nx_spl
 
     private:
         mutable implPtrType m_impl;
-        mutable uint64_t    m_freebucketSize;
-        mutable int64_t     m_tempbucketSize;
+        mutable int64_t    m_freebucketSize;
         uint64_t            m_totalSpace;
         mutable std::mutex  m_mutex;
         mutable bool        m_available;

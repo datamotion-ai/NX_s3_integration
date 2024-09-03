@@ -163,6 +163,7 @@ namespace nx_spl
                     size += fs::file_size(entry);
                 }
             }
+            DEBUGLOG("getFolderSize",size);
             return size;
         }
     }

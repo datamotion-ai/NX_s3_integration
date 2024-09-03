@@ -116,9 +116,11 @@ namespace nx_spl
 
     const char *nx_spl::S3StorageFactory::lastErrorMessage(int ecode) const
     {
+        DEBUGLOG("S3StorageFactory::lastErrorMessage",ecode);
         switch(ecode)
         {
             ERROR_LIST(STR_ERROR);
+            default: return "Unknown error";
         }
         return "";
     }
@@ -157,8 +159,7 @@ namespace nx_spl
     m_available(false),
     m_intialized(false),
     m_freebucketSize(S3_DEFAULT_TOTAL_SPACE),
-    m_totalSpace(S3_DEFAULT_TOTAL_SPACE),
-    m_tempbucketSize(0)
+    m_totalSpace(S3_DEFAULT_TOTAL_SPACE)
     {
         DEBUGLOG("S3Storage::S3Storage");
         aux::Url u;
@@ -297,7 +298,17 @@ namespace nx_spl
             
             if(filePath.find(".mkv") != std::string::npos)
             {
-                if(flags & io::ReadOnly)
+                if(flags & io::WriteOnly)
+                {
+                    uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
+                    if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
+                    {
+                        INFOLOG("Local Folder is full!! No space available.");
+                        *ecode = error::NotEnoughSpace;
+                        return ret;
+                    }
+                }
+                else if(flags & io::ReadOnly)
                 {
                     size_t last_slase_pos = filePath.find_last_of('/');
                     if (last_slase_pos != std::string::npos) 
@@ -322,12 +333,34 @@ namespace nx_spl
                 }
             }
 
-            ret = new S3IODevice( uri, flags,m_impl);
+            S3IODevice *temp_ptr = new S3IODevice( uri, flags,m_impl);
+            if(temp_ptr != nullptr)
+            {
+                if(temp_ptr->intialise())
+                {
+                    ret = temp_ptr;
+                }
+                else
+                {
+                    ERRORLOG("Failed to initialize S3IODevice pointer!!");
+                    delete temp_ptr;
+                }
+            }
+            else
+            {
+                ERRORLOG("invalid S3IODevice pointer!!");
+            }
             return ret;
+        }
+        catch(std::exception &e)
+        {
+            ERRORLOG("Error:",uri,flags,e.what());
+            *ecode = error::UrlNotExists;
+            return nullptr;
         }
         catch (...)
         {
-            ERRORLOG("Unable to open file",uri,flags);
+            ERRORLOG("Unknown error",uri,flags);
             *ecode = error::UrlNotExists;
             return nullptr;
         }
@@ -353,10 +386,13 @@ namespace nx_spl
                  ServerManager::getInstance()->postEvent("No Space Available in Local Storage!!, Recording stoped!!","");
                  spaceFullSet = true;
             }
-               
-            if (ecode)
-              *ecode = error::NotEnoughSpace;
             return 0;
+        }
+
+        if(spaceFullSet)
+        {
+            INFOLOG("Server is Back Online:",localFolderSize);
+            ServerManager::getInstance()->postEvent("Recording started!!","");
         }
 
         spaceFullSet = false;
@@ -364,7 +400,7 @@ namespace nx_spl
         if(m_impl.get() != nullptr)
         {
             uint64_t totalSize = m_impl.get()->remoteFolderSize();
-            m_freebucketSize = getTotalSpace(ecode) - totalSize - m_tempbucketSize;
+            m_freebucketSize = getTotalSpace(ecode) - totalSize - localFolderSize;
         }
         
         return m_freebucketSize;  
@@ -446,8 +482,7 @@ namespace nx_spl
                     else 
                     {
                         *ecode = error::NoError;
-                        m_tempbucketSize = m_tempbucketSize - size;
-                        INFOLOG("file deleted",url,m_tempbucketSize);
+                        INFOLOG("file deleted",url);
                     }
                 }
             }
@@ -478,7 +513,6 @@ namespace nx_spl
             {
                 *ecode = error::NoError;
                 m_impl.get()->remoteFolderSize(true);
-                m_tempbucketSize = 0;
                 INFOLOG("deleted directory",url);
             }
         }
@@ -511,13 +545,11 @@ namespace nx_spl
                     {
                         ClearMemoryManager::getInstance()->addFileToRemoveList(oldFile.fullPath);
                     }
-                    *ecode = error::UnknownError;
+                    *ecode = error::UrlNotExists;
                 }
                 else
                 {
-                    uint64_t size = aux::getFileSize(oldFile.fullPath.c_str());
-                    m_tempbucketSize = m_tempbucketSize + size;
-                    INFOLOG("added file to uploaded",newUrl,m_tempbucketSize);
+                    INFOLOG("added file to uploaded",newUrl);
                     *ecode = error::NoError;
                 }
             }
@@ -714,9 +746,17 @@ namespace nx_spl
         m_uri(uri),
         m_file(NULL)
     {
+        
+        DEBUGLOG("--------------------------done");
+    }
+
+    bool S3IODevice::intialise()
+    {
+        DEBUGLOG("S3IODevice::intialise");
+        bool ret = false;
         try
         {
-            if(mode & io::WriteOnly)
+            if(m_mode & io::WriteOnly)
             {
                 m_localfile = aux::localUniqueFilePath(m_uri);
                 if(fs::exists(m_localfile.fullPath))
@@ -724,16 +764,18 @@ namespace nx_spl
                     if ((m_localsize = aux::getFileSize(m_localfile.fullPath.c_str())) <= 0)
                     {
                         ERRORLOG("Invalid local file size:",m_localfile.fullPath,m_localsize);
-                        throw aux::InternalErrorException("local file calculate size failed");
                     }
-                    m_file = fopen(m_localfile.fullPath.c_str(), "r+b");
+                    else
+                    {
+                        m_file = fopen(m_localfile.fullPath.c_str(), "r+b");
+                    }
                 }
                 else
                 {
                     m_file = fopen(m_localfile.fullPath.c_str(), "w+b");
                 }
             }
-            else if(mode & io::ReadOnly)
+            else if(m_mode & io::ReadOnly)
             {
                 std::string file = m_uri;
                 if((file.find(".nxdb") == std::string::npos) && (file.find("info.txt") == std::string::npos) )
@@ -755,9 +797,11 @@ namespace nx_spl
                 if ((m_localsize = aux::getFileSize(m_localfile.fullPath.c_str())) <= 0)
                 {
                     ERRORLOG("Invalid local file size:",m_localfile.fullPath,m_localsize);
-                    throw aux::InternalErrorException("local file calculate size failed");
                 }
-                m_file = fopen(m_localfile.fullPath.c_str(), "rb");
+                else
+                {
+                    m_file = fopen(m_localfile.fullPath.c_str(), "rb");
+                }
             }
 
             
@@ -766,19 +810,21 @@ namespace nx_spl
             if(m_file == NULL)
             {
                 ERRORLOG("Failed to open local file!!",m_localfile.fullPath);
-                throw aux::InternalErrorException("Failed to open local file");
+                if(!m_impl->isFileInUploadList(m_uri))
+                    ClearMemoryManager::getInstance()->addFileToRemoveList(m_localfile.fullPath);
             }
-            if(mode & io::WriteOnly)
+            else 
+            {
+                ret = true;
+                if(m_mode & io::WriteOnly)
                 ClearMemoryManager::getInstance()->addFileToWriteList(m_localfile.fullPath);
+            }
         }
         catch(...)
         {
-            ERRORLOG("Error while IO operation",uri,mode);
-            if(!m_impl->isFileInUploadList(uri))
-                ClearMemoryManager::getInstance()->addFileToRemoveList(m_localfile.fullPath);
-            throw ;
+            ERRORLOG("Error while IO operation",m_uri,m_mode);
         }
-        DEBUGLOG("--------------------------done");
+        return ret;
     }
 
     uint32_t STORAGE_METHOD_CALL nx_spl::S3IODevice::write(const void *src, const uint32_t size, int *ecode)
