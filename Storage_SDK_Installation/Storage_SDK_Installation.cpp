@@ -104,7 +104,6 @@ int main(int argc, char* argv[])
     std::string username;
     std::string password;
     std::string host = "localhost:7001";
-    int local_buffer_size = 1;
     std::vector<std::string> OEM_name;
     if(argc >= 2)
     {
@@ -139,15 +138,6 @@ int main(int argc, char* argv[])
     if (!tmp.empty())
     host = tmp;
 
-    std::string tmp_buf;
-    std::cout << "Enter Local Buffer Size GB[default is 1GB]: ";
-    std::getline(std::cin, tmp_buf);
-
-    if (!tmp_buf.empty())
-    {
-        local_buffer_size = std::stoi(tmp_buf);
-    }
-
     std::cout << "Enter username: ";
     std::getline(std::cin, username);
 
@@ -172,7 +162,6 @@ int main(int argc, char* argv[])
     root["host"] = host;
     root["username"] = username;
     root["password"] = string_to_hex(pwd_str);
-    root["local_buffer"] = local_buffer_size;
     Json::Value oemArray(Json::arrayValue);
     
     for(int i =0; i < OEM_name.size(); i++)
