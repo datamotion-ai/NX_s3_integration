@@ -5,11 +5,27 @@ set -u #< Prohibit undefined variables.
 
 echo "Settingup sdk .."
 
-./Storage_SDK_Installation
+current_directory=$(pwd)
+echo "Current directory: $current_directory"
 
-cp license.config /mnt/plugin/nxwitness/mediaserver/bin/
-cp s3.config /mnt/plugin/nxwitness/mediaserver/bin/
-cp libs3_storage_plugin.so /mnt/plugin/nxwitness/mediaserver/bin/plugins/
+license_file="$current_directory/license.config"
 
-echo "Settingup sdk done"
+if [ -f $license_file ]; then
+    rm -f $license_file
+fi
 
+./Storage_SDK_License_Config "61e66cbda21b59c53713" "6bc96cb9bb0a54d43615c4" 
+
+if [ -f $license_file ]; then
+    ./Storage_SDK_Installation
+
+    cp license.config /mnt/plugin/nxwitness/mediaserver/bin/
+    cp s3.config /mnt/plugin/nxwitness/mediaserver/bin/
+    cp libs3_storage_plugin.so /mnt/plugin/nxwitness/mediaserver/bin/plugins/
+
+    echo "Settingup sdk done"
+
+else
+    echo "File $license_file does not exist."
+    exit 1
+fi

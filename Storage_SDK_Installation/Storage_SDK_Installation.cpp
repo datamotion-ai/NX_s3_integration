@@ -97,22 +97,56 @@ std::string decryption_str(const std::string input) {
     return pwd_str;
 }
 
-int main()
+int main(int argc, char* argv[])
 {
     std::cout << "Start Configuring storage sdk" << std::endl;
 
     std::string username;
     std::string password;
     std::string host = "localhost:7001";
-    std::string OEM_name = "Nx Witness";
-
+    int local_buffer_size = 1;
+    std::vector<std::string> OEM_name;
+    if(argc >= 2)
+    {
+        for(int i = 1; i < argc; i++)
+        {
+            std::string OEM = argv[i]; //"Nx Witness";
+            // std::cout << "before decrypt OEM_name: " << OEM << std::endl;
+            std::string str_hex = hex_to_string(OEM);
+            std::string dec_OEM = decryption_str(str_hex);
+            // std::cout << "after decrypt OEM_name: " << dec_OEM << std::endl;
+            if(dec_OEM == "Data Motion")
+            {
+                OEM_name.clear();
+                break;
+            }
+            else
+            {
+                OEM_name.push_back(dec_OEM);
+            }
+        }
+    }
+    else
+    {
+        std::cerr << "use ./Hax_Key_generator OEM_Name " << std::endl;
+        return -1;
+    }
 
     std::string tmp;
     std::cout << "Enter host[default is localhost:7001]: ";
     std::getline(std::cin, tmp);
 
     if (!tmp.empty())
-        host = tmp;
+    host = tmp;
+
+    std::string tmp_buf;
+    std::cout << "Enter Local Buffer Size GB[default is 1GB]: ";
+    std::getline(std::cin, tmp_buf);
+
+    if (!tmp_buf.empty())
+    {
+        local_buffer_size = std::stoi(tmp_buf);
+    }
 
     std::cout << "Enter username: ";
     std::getline(std::cin, username);
@@ -132,16 +166,22 @@ int main()
     }
 
     std::string pwd_str = encryption_str(password);
-    std::string oem_str = encryption_str(OEM_name);
-//    std::cout << "pwd_str:" << pwd_str << ", oem_str:" << oem_str << std::endl;
-
-//    std::cout << "de pwd_str:" << decryption_str(pwd_str) << ", de oem_str:" << decryption_str(oem_str) << std::endl;
-
+//    std::cout << "pwd_str:" << pwd_str  << std::endl;
+//    std::cout << "de pwd_str:" << decryption_str(pwd_str) << std::endl;
     Json::Value root;
     root["host"] = host;
     root["username"] = username;
     root["password"] = string_to_hex(pwd_str);
-    root["OEM"] = string_to_hex(oem_str);
+    root["local_buffer"] = local_buffer_size;
+    Json::Value oemArray(Json::arrayValue);
+    
+    for(int i =0; i < OEM_name.size(); i++)
+    {
+        std::string oem_enc_str = encryption_str(OEM_name[i]);
+        std::string oem_hex_str = string_to_hex(oem_enc_str);
+        oemArray.append(oem_hex_str);
+    }
+    root["OEM"] = oemArray;
 
     if (fs::exists("license.config"))
     {
@@ -161,7 +201,6 @@ int main()
     }
 
     std::cout << "Configuration has been done successfully" << std::endl;
-
 
     return 0;
 }

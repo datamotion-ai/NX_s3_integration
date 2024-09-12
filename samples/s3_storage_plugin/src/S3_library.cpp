@@ -655,6 +655,11 @@ namespace nx_spl
                 ERRORLOG(e.what());
                 throw aux::NetworkException(e.what());
             }
+            catch (...)
+            {
+                ERRORLOG("unknown error!!");
+                throw aux::NetworkException("unknown error!!");
+            }
         }
     }
 
@@ -712,9 +717,22 @@ namespace nx_spl
             
             std::string nxTemp = root["password"].asString();
             const std::string nxPassword = decrypt_string(nxTemp);
-            std::string nxOEM = root["OEM"].asString();
-            if(!nxOEM.empty())
-                nxOEM = decrypt_string(nxOEM);
+            std::vector<std::string> m_OEM;
+
+            if(root["OEM"].isArray())
+            {
+                Json::Value& oemArray = root["OEM"];
+                if(oemArray.empty() == false)
+                {
+                    for(int i=0; i< oemArray.size();i++)
+                    {
+                        std::string oem = oemArray[i].asString();
+                        std::string dec_oem = decrypt_string(oem);
+                        INFOLOG("supported OEMs:",dec_oem);
+                        m_OEM.push_back(dec_oem);
+                    }
+                }
+            }
 
             static std::string token;
             if(token.empty() || isSessionExpired(nxHostUrl, token))
@@ -770,7 +788,23 @@ namespace nx_spl
                 {
                     INFOLOG("------->",response);
                     INFOLOG("------->",headerResponse);
-                    if(nxOEM.empty() || (headerResponse.find(nxOEM) != std::string::npos))
+                    bool validOEM = false;
+                    if(m_OEM.empty() == true)
+                    {
+                        validOEM = true;
+                    }
+                    else
+                    {
+                        for(int i= 0; i < m_OEM.size(); i++)
+                        {
+                            if(headerResponse.find(m_OEM[i]) != std::string::npos)
+                            {
+                                validOEM = true;
+                                break;
+                            }
+                        }
+                    }
+                    if(validOEM)
                     {
                         Json::Value jsonData;
                         Json::CharReaderBuilder jsonReaderBuilder;
@@ -1185,7 +1219,14 @@ namespace nx_spl
                 ERRORLOG(e.what());
                 throw aux::BadUrlException(e.what());
             }
-            if(u.host.empty() || u.uaccessKey.empty() || u.usecreatKey.empty()||u.path.empty())
+            const int schemeSize = 3; // "s3." size
+            if((u.host.size() <= schemeSize) || (u.host.substr(0, schemeSize) != "s3."))
+            {
+                ERRORLOG("Invalid host name",u.host);
+                throw aux::BadUrlException("Invalid host name!!");
+            }
+
+            if(u.uaccessKey.empty() || u.usecreatKey.empty()||u.path.empty())
             {
                 ERRORLOG("Invalid Url or credentials",url);
                 throw aux::BadUrlException("Invalid Url or credentials!!");
@@ -1232,14 +1273,20 @@ namespace nx_spl
                 }
             }
         }
+        catch(const aux::BadUrlException& e)
+        {
+            ERRORLOG("exception:", e.what());
+            m_available = false;
+            throw aux::BadUrlException(e.what());
+        }
         catch(const aux::NetworkException& e)
         {
             ERRORLOG("exception:", e.what());
             m_available = false;
-            return;
         }
         catch(...)
         {
+            ERRORLOG("exception:");
             m_available = false;
             throw;
         }
@@ -1254,17 +1301,31 @@ namespace nx_spl
             m_available = false;
             return 0;
         }
-        if(m_impl != nullptr)
+        if(m_impl.get() != nullptr)
         {
             if(m_available == false)
             {
                 INFOLOG("Connection lost");
-                m_available = aux::establishS3Connection(m_url,m_accessKey,m_secretKey,m_bucket,m_impl);
+                try
+                {
+                    m_available = aux::establishS3Connection(m_url,m_accessKey,m_secretKey,m_bucket,m_impl);
+                }
+                catch(const aux::NetworkException& e)
+                {
+                    ERRORLOG("exception:", e.what());
+                    m_available = false;
+                }
+                catch(...)
+                {
+                    ERRORLOG("exception:");
+                    m_available = false;
+                } 
             }
         }
         else
         {
             ERRORLOG("implPtrType is nullptr!");
+            m_available = false;
         }
         if(m_available)
             return 1;
@@ -1706,6 +1767,7 @@ namespace nx_spl
     nx_spl::S3Storage::~S3Storage()
     {
         DEBUGLOG("S3Storage::~S3Storage");
+        m_impl.reset();
     }
 
     nx_spl::S3IODevice::S3IODevice(const char *uri, 
