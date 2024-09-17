@@ -17,11 +17,10 @@ fi
 ./Storage_SDK_License_Config "61e66cbda21b59c53713" "6bc96cb9bb0a54d43615c4" 
 
 if [ -f $license_file ]; then
-    ./Storage_SDK_Installation
 
-    cp license.config /mnt/plugin/nxwitness/mediaserver/bin/
-    cp s3.config /mnt/plugin/nxwitness/mediaserver/bin/
-    cp libs3_storage_plugin.so /mnt/plugin/nxwitness/mediaserver/bin/plugins/
+    cp license.config /mnt/plugin/dwspectrum/mediaserver/bin/
+    cp s3.config /mnt/plugin/dwspectrum/mediaserver/bin/
+    cp libs3_storage_plugin.so /mnt/plugin/dwspectrum/mediaserver/bin/plugins/
 
     echo "Settingup sdk done"
 
