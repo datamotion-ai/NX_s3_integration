@@ -1,7 +1,45 @@
 #ifndef SERVERMANAGER_H
 #define SERVERMANAGER_H
 
-#include "common.hpp"
+#include <cstring>
+#include <atomic>
+#include <algorithm>
+#include <stdexcept>
+#include <sstream>
+#include <cctype>
+#include <cstdio>
+#include <fstream>
+#include <cassert>
+#include <ctime>
+#include <cstdlib>
+#include <iostream>
+#include <cstdio>
+#include <json/json.h>
+#include <vector>
+#include <memory>
+#include <stdint.h>
+#include <mutex>
+
+#if defined(__linux__) || defined(__APPLE__)
+#   include <sys/stat.h>
+#   include <sys/utsname.h>
+#elif defined (_WIN32)
+#   include <Windows.h>
+#   include <winternl.h>
+#endif
+
+#if __has_include(<filesystem>)
+  #include <filesystem>
+  namespace fs = std::filesystem;
+#elif __has_include(<experimental/filesystem>)
+  #include <experimental/filesystem> 
+  namespace fs = std::experimental::filesystem;
+#else
+  error "Missing the <filesystem> header."
+#endif
+
+#include "storage/third_party_storage.h"
+#include "daily_loger.hpp"
 #include "timer.h"
 
 class ServerManager
