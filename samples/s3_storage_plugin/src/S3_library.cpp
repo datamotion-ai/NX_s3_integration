@@ -976,7 +976,7 @@ namespace nx_spl
             }
 
             int schemeSize = 8; // "https://" size
-            if(u.host.substr(0, schemeSize) != "https://")
+            if(u.host.substr(0, schemeSize) == "https://")
             {
                 u.host = u.host.substr(schemeSize,u.host.size());
             }
