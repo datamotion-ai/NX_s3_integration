@@ -497,13 +497,13 @@ namespace nx_spl
                     }
                     else 
                     {
-                        INFOLOG("Directory created successfully",dir,bucket);
+                        DEBUGLOG("Directory created successfully",dir,bucket);
                         ret = true;
                     }
                 }
                 else
                 {
-                    INFOLOG("Directory already exist",dir,bucket);
+                    DEBUGLOG("Directory already exist",dir,bucket);
                     ret = true;
                 }
             }
@@ -702,7 +702,7 @@ namespace nx_spl
             curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
             std::string data = "{\"username\":\""+ usr + "\",\"password\":\"" + pswd + "\",\"setCookie\":true}";
-            INFOLOG("data",data);
+            DEBUGLOG("data",data);
             curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
 
             std::string response;
@@ -716,7 +716,7 @@ namespace nx_spl
             } 
             else 
             {
-                INFOLOG("------->",response);
+                DEBUGLOG("------->",response);
                 Json::Value root;
                 Json::Reader reader;
                 if(reader.parse(response, root) && (root.isMember("token")))
@@ -738,7 +738,7 @@ namespace nx_spl
 
     bool nx_spl::S3StorageFactory::isSessionExpired(const std::string &host, std::string &token) const
     {
-        INFOLOG("S3StorageFactory::isSessionExpired",host,token);
+        DEBUGLOG("S3StorageFactory::isSessionExpired",host,token);
         bool ret = true;
         CURL* curl = curl_easy_init();
         if (!curl) 
@@ -748,7 +748,7 @@ namespace nx_spl
         else
         {
             std::string url = "https://" + host +  "/rest/v2/login/sessions/" + token;
-            INFOLOG("url",url);
+            DEBUGLOG("url",url);
             curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
             curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
 
@@ -771,7 +771,7 @@ namespace nx_spl
             if (res1 != CURLE_OK) {
                 ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
             } else {
-                INFOLOG("------->",response);
+                DEBUGLOG("------->",response);
                 Json::Value root;
                 Json::Reader reader;
                 if(reader.parse(response, root))
@@ -1412,7 +1412,7 @@ namespace nx_spl
         if (!isAvailable())
         {
             *ecode = error::StorageUnavailable;
-            INFOLOG("S3 not connected");
+            DEBUGLOG("S3 not connected");
             return 0;
         }
         else
@@ -1612,7 +1612,7 @@ namespace nx_spl
                         {
                             fileStream << objectStream.rdbuf();
                             fileStream.close();
-                            INFOLOG("File downaloded and stored in file",m_localfile.fullPath);
+                            DEBUGLOG("File downaloded and stored in file",m_localfile.fullPath);
                         } 
                         else 
                         {
@@ -1631,11 +1631,11 @@ namespace nx_spl
             {
                 if(fs::exists(m_localfile.fullPath))
                 {
-                    INFOLOG("File already downloaded into local storage",m_localfile.fullPath);
+                    DEBUGLOG("File already downloaded into local storage",m_localfile.fullPath);
                 }
                 else
                 {
-                    INFOLOG("Downloading file!!",m_localfile.fullPath);
+                    DEBUGLOG("Downloading file!!",m_localfile.fullPath);
                     Aws::S3::Model::GetObjectRequest request;
                     request.SetBucket(m_bucket);
                     request.SetKey(uri);
@@ -1670,7 +1670,7 @@ namespace nx_spl
                     throw aux::InternalErrorException("local file calculate size failed");
                 }
             }
-            INFOLOG("File size",m_localfile.fullPath,m_localsize);
+            DEBUGLOG("File size",m_localfile.fullPath,m_localsize);
             if(mode & io::WriteOnly)
             {
                 if(fs::exists(m_localfile.fullPath))
@@ -1784,7 +1784,7 @@ namespace nx_spl
         {
             if (feof(m_file)) 
             {
-                INFOLOG("EOF",m_localfile.fullPath,readSize);
+                DEBUGLOG("EOF",m_localfile.fullPath,readSize);
                 m_pos += readSize;
                 if((readSize <= 0) && ecode)
                     *ecode = error::EndOfFile;
@@ -1902,7 +1902,7 @@ namespace nx_spl
                         ERRORLOG("Unable to read local file:",m_localfile.fullPath);
                         throw aux::InternalErrorException("Error unable to read local file ");
                     }
-                    INFOLOG("Uploading file!!",m_localfile.fullPath);
+                    DEBUGLOG("Uploading file!!",m_localfile.fullPath);
                     Aws::S3::Model::PutObjectRequest request;
                     request.SetBucket(m_bucket);
                     request.SetKey(m_uri);
@@ -1916,7 +1916,7 @@ namespace nx_spl
                     }
                     else 
                     {
-                        INFOLOG("Successfully uploaded file:",m_localfile.fullPath,m_uri,m_bucket);
+                        DEBUGLOG("Successfully uploaded file:",m_localfile.fullPath,m_uri,m_bucket);
                     }
                 }
                 catch(aux::InternalErrorException &e)

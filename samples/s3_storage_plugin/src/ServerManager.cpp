@@ -158,10 +158,6 @@ bool ServerManager::loadServerCredential()
             m_user = root["username"].asString();
             if(root.isMember("pluginRegistered"))
                 m_pluginRegistered = root["pluginRegistered"].asBool();
-            m_local_buffer_size = root["local_buffer"].asInt64();
-            INFOLOG("Local Buffer Size",m_local_buffer_size);
-            m_local_buffer_size *= DEFAULT_1_GB ;
-            INFOLOG("Local Buffer Size",m_local_buffer_size);
             std::string nxTemp = root["password"].asString();
             m_dmLicenceKey = root["licence_key"].asString();
             m_password = decrypt_string(nxTemp);
@@ -174,7 +170,7 @@ bool ServerManager::loadServerCredential()
                     {
                         std::string oem = oemArray[i].asString();
                         std::string dec_oem = decrypt_string(oem);
-                        INFOLOG("supported OEMs:",dec_oem);
+                        DEBUGLOG("supported OEMs:",dec_oem);
                         m_OEM.push_back(dec_oem);
                     }
                 }
@@ -226,7 +222,7 @@ bool ServerManager::createSession(const std::string &host, const std::string &us
         } 
         else 
         {
-            INFOLOG("------->",response);
+            DEBUGLOG("------->",response);
             Json::Value root;
             Json::Reader reader;
             if(reader.parse(response, root) && (root.isMember("token")))
@@ -281,7 +277,7 @@ bool ServerManager::isSessionExpired(const std::string &host, std::string &token
         if (res1 != CURLE_OK) {
             ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
         } else {
-            INFOLOG("------->",response);
+            DEBUGLOG("------->",response);
             Json::Value root;
             Json::Reader reader;
             if(reader.parse(response, root))
@@ -347,8 +343,8 @@ bool ServerManager::verifyLicense()
         } 
         else 
         {
-            INFOLOG("------->",response);
-            INFOLOG("------->",headerResponse);
+            DEBUGLOG("------->",response);
+            DEBUGLOG("------->",headerResponse);
             m_serverOEM = headerResponse;
             m_serverOEM.erase(std::remove(m_serverOEM.begin(), m_serverOEM.end(), '\n'), m_serverOEM.end());
             if(verifyOEM(m_serverOEM))
@@ -389,7 +385,7 @@ bool ServerManager::verifyLicense()
                             if (licenseObject.isMember("EXPIRATION")) 
                             {
                                 std::string expirationValue = licenseObject["EXPIRATION"].asString();
-                                INFOLOG("---EXPIRATION---->",expirationValue);
+                                DEBUGLOG("---EXPIRATION---->",expirationValue);
                                 std::time_t rawTime;
                                 std::tm* timeInfo;
                                 char buffer[80];
@@ -537,7 +533,7 @@ std::string ServerManager::getLicenseKey()
         } 
         else 
         {
-            INFOLOG("------->",response);
+            DEBUGLOG("------->",response);
             Json::Value jsonData;
             Json::CharReaderBuilder jsonReaderBuilder;
             std::istringstream jsonStream(response);
@@ -546,7 +542,7 @@ std::string ServerManager::getLicenseKey()
             if(validJson && jsonData.isMember("key"))
             {
                 key = jsonData["key"].asString();
-                INFOLOG("--key----->",key);
+                DEBUGLOG("--key----->",key);
             }
         }
     }
@@ -635,7 +631,7 @@ void ServerManager::registerPlugin()
             "\"software_localtime\":\"" + local_time + "\""
             "}";
 
-            INFOLOG("data",data);
+            DEBUGLOG("data",data);
             curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
 
             std::string response;
@@ -649,7 +645,7 @@ void ServerManager::registerPlugin()
             } 
             else 
             {
-                INFOLOG("------->",response);
+                DEBUGLOG("------->",response);
                 Json::Value jsonData;
                 Json::CharReaderBuilder jsonReaderBuilder;
                 std::istringstream jsonStream(response);
@@ -797,11 +793,11 @@ void ServerManager::updateLicenseDetail()
             if((max_expire_count > 0) && (dmLicenceKey_count >= dmLicenceKey_count_max))
             {
                 std::string server_ID = getServerID();
-                INFOLOG(m_dmLicenceKey, server_ID, "DW_OEM");
+                DEBUGLOG(m_dmLicenceKey, server_ID, "DW_OEM");
                 LicenseManager::licenseResponse vals = LicenseManager::checkLicense(m_dmLicenceKey, server_ID, "DW_OEM");
                 INFOLOG("Message:", vals.response);
                 dmLicenceKey_count = 0;
-                if(vals.response != "License expired!")
+                if((vals.response == "Device Already Registered!") || (vals.response == "License Activated!"))
                 {
                     dmLicenceValid = true;
                     max_expire_count = 3;
