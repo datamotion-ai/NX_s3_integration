@@ -42,6 +42,28 @@
 #include "daily_loger.hpp"
 #include "timer.h"
 
+#define S3_CONFIG_FILE "s3.config"
+#define DEFAULT_1_GB  1024 * 1024 * 1024 //1 GB
+#define S3_DEFAULT_TOTAL_SPACE 1024LL * DEFAULT_1_GB //100GB
+
+#define LICENSE_CONFIG_FILE "license.config"
+#define ONE_MINUTE 60 * 1000
+#define FIVE_MINUTE 5 * ONE_MINUTE
+#define TEN_MINUTE 10 * ONE_MINUTE
+#define MAX_FILE_WRITE_COUNT 1
+#define VERSION "beta-1.0.3.1"
+
+namespace nx_spl
+{
+    namespace aux
+    { 
+        size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output); 
+
+        size_t headerCallback(char* buffer, size_t size, size_t nitems, std::string* output);
+
+    }
+}
+
 class ServerManager
 {
     public:

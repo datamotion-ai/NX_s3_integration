@@ -8,6 +8,30 @@
 #include <chrono>
 #include "license_handler.h"
 
+namespace nx_spl
+{
+    namespace aux
+    { 
+        size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output) 
+        {
+            size_t total_size = size * nmemb;
+            output->append(static_cast<char*>(contents), total_size);
+            return total_size;
+        }
+
+        size_t headerCallback(char* buffer, size_t size, size_t nitems, std::string* output)
+        {
+            size_t total_size = size * nitems;
+            std::string header(buffer, total_size);
+            if (header.compare(0, 7, "Server:") == 0)
+            {
+                *output = header.substr(8);
+            }
+            return total_size;
+        }
+    }
+}
+
 ServerManager* ServerManager::m_serverPtr = nullptr;
 
 ServerManager *ServerManager::getInstance()

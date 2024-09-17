@@ -35,42 +35,13 @@
 #   define NOEXCEPT noexcept
 #endif
 
-#define S3_CONFIG_FILE "s3.config"
-#define S3_DEFAULT_TOTAL_SPACE 1024LL * 1024 * 1024 * 1024 //100GB
-
-#define LICENSE_CONFIG_FILE "license.config"
-#define ONE_MINUTE 60 * 1000
-#define FIVE_MINUTE 5 * ONE_MINUTE
-#define TEN_MINUTE 10 * ONE_MINUTE
-#define MAX_FILE_WRITE_COUNT 1
-#define VERSION "beta-1.0.3.1"
-
 bool g_bucketSizeNeedUpdate = true;
 std::vector<std::string> g_removeFileFailedList;
 
 namespace nx_spl
 {
-
     namespace aux
     { 
-
-        size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output) 
-        {
-            size_t total_size = size * nmemb;
-            output->append(static_cast<char*>(contents), total_size);
-            return total_size;
-        }
-
-        size_t headerCallback(char* buffer, size_t size, size_t nitems, std::string* output)
-        {
-            size_t total_size = size * nitems;
-            std::string header(buffer, total_size);
-            if (header.compare(0, 7, "Server:") == 0) 
-            {
-                *output = header.substr(8); 
-            }
-            return total_size;
-        }
 
         struct Url
         {
@@ -682,7 +653,6 @@ namespace nx_spl
     {
         INFOLOG("S3StorageFactory::~S3StorageFactory");
         Aws::ShutdownAPI(m_options);
-        m_timer.stop();
         m_clearMemoryTimer.stop();
         ServerManager::deleteInstance();
         nx_spl::aux::DailyLogger::Dinitialize();
@@ -1012,7 +982,7 @@ namespace nx_spl
             }
             INFOLOG("Host:",u.host);
 
-            const int schemeSize = 3; // "s3." size
+            schemeSize = 3; // "s3." size
             if((u.host.size() <= schemeSize) || (u.host.substr(0, schemeSize) != "s3."))
             {
                 ERRORLOG("Invalid host name",u.host);
