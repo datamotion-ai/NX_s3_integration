@@ -14,7 +14,7 @@ if [ -f $license_file ]; then
     rm -f $license_file
 fi
 
-./Storage_SDK_License_Config "61e66cbda21b59c53713" "6bc96cb9bb0a54d43615c4" 
+./Storage_SDK_Installation "61e66cbda21b59c53713" "6bc96cb9bb0a54d43615c4" 
 
 if [ -f $license_file ]; then
 

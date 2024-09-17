@@ -419,7 +419,7 @@ namespace nx_spl
             }
             else 
             {
-                INFOLOG("Remote dir not exists",bucket);
+                INFOLOG("Remote dir not exists",bucket,outcome.GetError().GetMessage());
                 throw aux::BadUrlException("Remote dir not exists");
             }
             return found;
@@ -471,7 +471,7 @@ namespace nx_spl
             }
             else 
             {
-                ERRORLOG("Remote dir not exists",uri,bucket);
+                ERRORLOG("Remote dir not exists",uri,bucket,outcome.GetError().GetMessage());
                 throw aux::BadUrlException("Remote dir not exists");
             }
             return totalSize;
@@ -613,7 +613,7 @@ namespace nx_spl
                     }
                     else
                     {
-                        ERRORLOG("Failed to list bucket lists!! connection failed!!");
+                        ERRORLOG("Failed to list bucket lists!! connection failed!!",outcome.GetError().GetMessage());
                     }
                 }
                 else
@@ -969,7 +969,7 @@ namespace nx_spl
             {
                 std::string tmp_url = url;
                 std::string prefix = "@https//";
-                // Find "https://" in the string
+                // Find "https//" in the string
                 size_t pos = url.find(prefix);
 
                 // If found, erase it
@@ -1407,6 +1407,7 @@ namespace nx_spl
         }
         else 
         {
+            ERRORLOG("Failed to lists objects!!",outcome.GetError().GetMessage())
             return nullptr;
         }
         return nullptr;
@@ -1477,7 +1478,7 @@ namespace nx_spl
             }
             else
             {
-                ERRORLOG("Failed to find directory:",dir,m_bucket);
+                ERRORLOG("Failed to find directory:",dir,m_bucket,outcome.GetError().GetMessage());
                 *ecode = error::UrlNotExists;
                 return 0;
             }
@@ -1610,7 +1611,7 @@ namespace nx_spl
 
                     if (!outcome.IsSuccess()) 
                     {
-                        ERRORLOG("Download failed:",m_uri,m_bucket);
+                        ERRORLOG("Download failed:",m_uri,m_bucket,outcome.GetError().GetMessage());
                         throw aux::InternalErrorException(outcome.GetError().GetMessage().c_str());
                     }
                     else 
@@ -1653,7 +1654,7 @@ namespace nx_spl
 
                     if (!outcome.IsSuccess()) 
                     {
-                        ERRORLOG("Download failed:",uri,m_bucket);
+                        ERRORLOG("Download failed:",uri,m_bucket,outcome.GetError().GetMessage());
                         throw aux::InternalErrorException("Download failed");
                     }
                     else 
