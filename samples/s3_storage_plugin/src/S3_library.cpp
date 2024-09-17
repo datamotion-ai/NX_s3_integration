@@ -62,7 +62,7 @@ namespace nx_spl
 
                 const int schemeSize = 5; // "S3://" size
                 int start = 0, cur = 0;
-                char c;
+                char c,c_0,c_1;
                 Url u;
 
                 if (s.size() <= schemeSize)
@@ -967,7 +967,17 @@ namespace nx_spl
             aux::Url u;
             try
             {
-                u = aux::Url::fromString(url);
+                std::string tmp_url = url;
+                std::string prefix = "@https//";
+                // Find "https://" in the string
+                size_t pos = url.find(prefix);
+
+                // If found, erase it
+                if (pos != std::string::npos) {
+                    tmp_url.erase(pos+1, prefix.length()-1);
+                }
+
+                u = aux::Url::fromString(tmp_url);
             }
             catch (const std::exception& e)
             {
