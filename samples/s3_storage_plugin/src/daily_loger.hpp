@@ -1,7 +1,19 @@
-#ifndef _DAILY_LOGGER_H_
-#define _DAILY_LOGGER_H_
+#pragma once
 
-#include "common.hpp"
+#include <vector>
+#include <string>
+#include <memory>
+#include <stdexcept>
+#include <stdint.h>
+#include <mutex>
+#include <fstream>
+#include <ctime>
+#include <sstream>
+#include <filesystem>
+#include <iostream>
+#include <mutex>
+
+namespace fs = std::filesystem;
 
 #define DEBUGLOG(...) ""
 //#define INFOLOG(...) ""
@@ -35,10 +47,12 @@ namespace nx_spl
                 template <typename... Args>
                 static void Log(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 
                 {
-                    std::lock_guard<std::mutex> lock(m_mutex);
-                    if (m_file.is_open())
+                    if (priority < m_verbosity) 
+                        return;
+                    else
                     {
-                        if (priority >= m_verbosity) 
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        if (m_file.is_open())
                         {
                             switch (priority) 
                             {
@@ -72,6 +86,10 @@ namespace nx_spl
                     }
                 }
 
+                static std::string generateRotatedLogFileName(const std::string &logFilePath);
+
+                static void deleteOldLogFiles();
+
                 static void Initialize();
 
                 static void Dinitialize();
@@ -94,5 +112,3 @@ namespace nx_spl
         };
     }
 }
-
-#endif //_DAILY_LOGGER_H_

@@ -165,12 +165,32 @@ namespace nx_spl
         aux::Url u;
         try
         {
-            u = aux::Url::fromString(url);
+            std::string tmp_url = url;
+            std::string prefix = "@https//";
+            size_t pos = url.find(prefix);
+            if (pos != std::string::npos) {
+                tmp_url.erase(pos+1, prefix.length()-1);
+            }
+            u = aux::Url::fromString(tmp_url);
         }
         catch (const std::logic_error& e)
         {
             ERRORLOG(e.what());
             throw aux::BadUrlException(e.what());
+        }
+
+        int schemeSize = 8; // "https://" size
+        if(u.host.substr(0, schemeSize) == "https://")
+        {
+            u.host = u.host.substr(schemeSize,u.host.size());
+        }
+        INFOLOG("Host:",u.host);
+
+        schemeSize = 3; // "s3." size
+        if((u.host.size() <= schemeSize) || (u.host.substr(0, schemeSize) != "s3."))
+        {
+            ERRORLOG("Invalid host name",u.host);
+            throw aux::BadUrlException("Invalid host name!!");
         }
 
         if(u.host.empty() || u.uaccessKey.empty() || u.usecreatKey.empty()||u.path.empty())
