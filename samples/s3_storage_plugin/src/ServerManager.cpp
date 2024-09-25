@@ -6,7 +6,6 @@
 #include <iomanip>
 #include <ctime>
 #include <chrono>
-#include "license_handler.h"
 
 namespace nx_spl
 {
@@ -786,61 +785,19 @@ void ServerManager::updateLicenseDetail()
         }
         if(!m_token.empty())
         {
-            static int dmLicenceKey_count_max = 600; //10hours
-            static int dmLicenceKey_count = 600;
-            static bool dmLicenceValid = false;
-            static int max_expire_count = 3;
-            if((max_expire_count > 0) && (dmLicenceKey_count >= dmLicenceKey_count_max))
+            if(verifyLicense())
             {
-                std::string server_ID = getServerID();
-                DEBUGLOG(m_dmLicenceKey, server_ID, "DW_OEM");
-                LicenseManager::licenseResponse vals = LicenseManager::checkLicense(m_dmLicenceKey, server_ID, "DW_OEM");
-                INFOLOG("Message:", vals.response);
-                dmLicenceKey_count = 0;
-                if((vals.response == "Device Already Registered!") || (vals.response == "License Activated!"))
-                {
-                    dmLicenceValid = true;
-                    max_expire_count = 3;
-                }
-                else
-                {
-                    dmLicenceKey_count = 600;
-                    max_expire_count--;
-                    dmLicenceValid = false;
-                }
-            }
-            else
-            {
-                dmLicenceKey_count_max++;
-            }
-            
-
-            if(dmLicenceValid)
-            {
-                if(verifyLicense())
-                {
-                    m_licenceAvailable = true;
-                    m_timer.setInterval(TEN_MINUTE);
-                    dmLicenceKey_count_max = 60;
-                }
-                else
-                {
-                    m_licenceAvailable = false;
-                    m_timer.setInterval(ONE_MINUTE);
-                    dmLicenceKey_count_max = 600;
-                    ServerManager::getInstance()->postEvent("License Expired!!,Update License Details!!","");
-                }
-                if(m_pluginRegistered == false)
-                    registerPlugin();
+                m_licenceAvailable = true;
+                m_timer.setInterval(TEN_MINUTE);
             }
             else
             {
                 m_licenceAvailable = false;
-                m_timer.setInterval(TEN_MINUTE);
-                dmLicenceKey_count_max = 600;
-                ServerManager::getInstance()->postEvent("Invalid Plugin!!","");
+                m_timer.setInterval(ONE_MINUTE);
+                ServerManager::getInstance()->postEvent("License Expired!!,Update License Details!!","");
             }
-            
+            if(m_pluginRegistered == false)
+                registerPlugin();
         }
         else
         {

@@ -47,10 +47,12 @@ namespace nx_spl
                 template <typename... Args>
                 static void Log(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 
                 {
-                    std::lock_guard<std::mutex> lock(m_mutex);
-                    if (m_file.is_open())
+                    if (priority < m_verbosity) 
+                        return;
+                    else
                     {
-                        if (priority >= m_verbosity) 
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        if (m_file.is_open())
                         {
                             switch (priority) 
                             {
@@ -83,6 +85,10 @@ namespace nx_spl
                         }
                     }
                 }
+
+                static std::string generateRotatedLogFileName(const std::string &logFilePath);
+
+                static void deleteOldLogFiles(); 
 
                 static void Initialize();
 
