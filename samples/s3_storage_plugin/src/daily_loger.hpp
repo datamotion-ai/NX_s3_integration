@@ -15,9 +15,9 @@
 
 namespace fs = std::filesystem;
 
-#define DEBUGLOG(...) ""
+// #define DEBUGLOG(...) ""
 //#define INFOLOG(...) ""
-//#define DEBUGLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::DebugP, __FUNCTION__, __LINE__, __VA_ARGS__);
+#define DEBUGLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::DebugP, __FUNCTION__, __LINE__, __VA_ARGS__);
 #define INFOLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::InfoP, __FUNCTION__, __LINE__, __VA_ARGS__);
 #define ERRORLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::ErrorP, __FUNCTION__, __LINE__, __VA_ARGS__);
 
@@ -88,7 +88,7 @@ namespace nx_spl
 
                 static std::string generateRotatedLogFileName(const std::string &logFilePath);
 
-                static void deleteOldLogFiles();
+                static void deleteOldLogFiles(); 
 
                 static void Initialize();
 

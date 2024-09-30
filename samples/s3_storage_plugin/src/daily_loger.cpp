@@ -2,7 +2,7 @@
 
 #include "daily_loger.hpp"
 
-nx_spl::aux::DailyLogger::LogPriority nx_spl::aux::DailyLogger::m_verbosity = nx_spl::aux::DailyLogger::LogPriority::DebugP;
+nx_spl::aux::DailyLogger::LogPriority nx_spl::aux::DailyLogger::m_verbosity = nx_spl::aux::DailyLogger::LogPriority::InfoP;
 std::string nx_spl::aux::DailyLogger::m_logDirectory = "./logs";  // Default log directory
 std::string nx_spl::aux::DailyLogger::m_currentLogFile;
 std::mutex  nx_spl::aux::DailyLogger::m_mutex;
@@ -126,3 +126,4 @@ void nx_spl::aux::DailyLogger::Dinitialize()
         m_file.close();
     m_currentLogFile.clear();
 }
+
