@@ -1,19 +1,7 @@
-#pragma once
+#ifndef _DAILY_LOGGER_H_
+#define _DAILY_LOGGER_H_
 
-#include <vector>
-#include <string>
-#include <memory>
-#include <stdexcept>
-#include <stdint.h>
-#include <mutex>
-#include <fstream>
-#include <ctime>
-#include <sstream>
-#include <filesystem>
-#include <iostream>
-#include <mutex>
-
-namespace fs = std::filesystem;
+#include "common.hpp"
 
 // #define DEBUGLOG(...) ""
 //#define INFOLOG(...) ""
@@ -31,7 +19,7 @@ namespace nx_spl
             public:
                 enum LogPriority 
                 {
-                    DebugP, InfoP, WarnP, ErrorP, CriticalP, FatalP
+                    DebugP = 0, InfoP, ErrorP
                 };
 
             private:
@@ -47,21 +35,21 @@ namespace nx_spl
                 template <typename... Args>
                 static void Log(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 
                 {
-                    if (priority < m_verbosity) 
+                    if ((priority < m_verbosity) || m_currentLogFile.empty())
+                    {
                         return;
+                    } 
                     else
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
+                        m_file.open(m_currentLogFile,std::ios_base::app);
                         if (m_file.is_open())
                         {
                             switch (priority) 
                             {
                                 case DebugP: m_file << "Debug:\t"; break;
                                 case InfoP: m_file << "Info:\t"; break;
-                                case WarnP: m_file << "Warn:\t"; break;
                                 case ErrorP: m_file << "Error:\t"; break;
-                                case CriticalP: m_file << "Critical:\t"; break;
-                                case FatalP: m_file << "Fatal:\t"; break;
                             }
 
                             // Get current timestamp
@@ -83,16 +71,17 @@ namespace nx_spl
                             m_file.close();
                             updateLogFile();
                         }
-                    }
+                    }  
+                    
                 }
-
-                static std::string generateRotatedLogFileName(const std::string &logFilePath);
-
-                static void deleteOldLogFiles(); 
 
                 static void Initialize();
 
                 static void Dinitialize();
+
+                static void deleteOldLogFiles();
+
+                static std::string generateRotatedLogFileName(const std::string &logFilePath);
 
             private:
                 static void updateLogFile();
@@ -112,3 +101,5 @@ namespace nx_spl
         };
     }
 }
+
+#endif //_DAILY_LOGGER_H_

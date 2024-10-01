@@ -1,8 +1,6 @@
-#pragma once
-
 #include "daily_loger.hpp"
 
-nx_spl::aux::DailyLogger::LogPriority nx_spl::aux::DailyLogger::m_verbosity = nx_spl::aux::DailyLogger::LogPriority::InfoP;
+nx_spl::aux::DailyLogger::LogPriority nx_spl::aux::DailyLogger::m_verbosity = nx_spl::aux::DailyLogger::LogPriority::DebugP;
 std::string nx_spl::aux::DailyLogger::m_logDirectory = "./logs";  // Default log directory
 std::string nx_spl::aux::DailyLogger::m_currentLogFile;
 std::mutex  nx_spl::aux::DailyLogger::m_mutex;
@@ -14,29 +12,27 @@ void nx_spl::aux::DailyLogger::updateLogFile()
     std::time_t rawTime;
     std::tm* timeInfo;
     char buffer[80];
+    std::size_t maxSizeInBytes = 5 * 1024 * 1024; // 5 MB
 
     std::time(&rawTime);
     timeInfo = std::localtime(&rawTime);
-
     std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", timeInfo);
     std::string currentDate(buffer);
 
-    std::size_t maxSizeInBytes = 5 * 1024 * 1024; // 5 MB
-
-    if (m_currentLogFile.empty() || currentDate != m_currentLogFile) 
+    if (m_currentLogFile.empty() || (m_currentLogFile.find(currentDate) == std::string::npos)) 
     {
         if (m_file.is_open())
             m_file.close();
-
-        std::string rotatedLogFile = generateRotatedLogFileName(m_currentLogFile);
-        fs::rename(m_currentLogFile, rotatedLogFile);
-
+        if((m_currentLogFile.empty() == false) && fs::exists(m_currentLogFile))
+        {
+            std::string rotatedLogFile = generateRotatedLogFileName(m_currentLogFile);
+            fs::rename(m_currentLogFile, rotatedLogFile);
+        }
         m_currentLogFile = m_logDirectory + "/log_" + currentDate + ".txt";
         m_file.open(m_currentLogFile,std::ios_base::app);
         deleteOldLogFiles();
     }
-    else if (fs::exists(m_currentLogFile) &&
-        fs::file_size(m_currentLogFile) >= maxSizeInBytes) 
+    else if (fs::exists(m_currentLogFile) && fs::file_size(m_currentLogFile) >= maxSizeInBytes) 
     {
         if (m_file.is_open())
             m_file.close();
@@ -48,7 +44,36 @@ void nx_spl::aux::DailyLogger::updateLogFile()
         m_file.open(m_currentLogFile,std::ios_base::app);
         deleteOldLogFiles();
     }
+}
 
+void nx_spl::aux::DailyLogger::createLogDirectory() 
+{
+    if (!fs::exists(m_logDirectory)) 
+    {
+        fs::create_directory(m_logDirectory);
+    }
+}
+
+void nx_spl::aux::DailyLogger::SetVerbosity(LogPriority new_priority) 
+{
+    if(m_verbosity != new_priority)
+    {
+        INFOLOG("Log level changed",new_priority)
+        m_verbosity = new_priority;
+    }
+}
+
+void nx_spl::aux::DailyLogger::Initialize() 
+{
+    createLogDirectory();
+    updateLogFile();
+}
+
+void nx_spl::aux::DailyLogger::Dinitialize()
+{
+    if (m_file.is_open())
+        m_file.close();
+    m_currentLogFile.clear();
 }
 
 void nx_spl::aux::DailyLogger::deleteOldLogFiles() 
@@ -70,6 +95,9 @@ void nx_spl::aux::DailyLogger::deleteOldLogFiles()
         }
     }
 
+    if(logFiles.empty() || (logFiles.size() <= maxLogFiles))
+        return;
+
     std::sort(logFiles.begin(), logFiles.end(), [](const fs::path& a, const fs::path& b) 
     {
         return fs::last_write_time(a) < fs::last_write_time(b);
@@ -80,19 +108,7 @@ void nx_spl::aux::DailyLogger::deleteOldLogFiles()
         fs::remove(logFiles.front());
         logFiles.erase(logFiles.begin());
     }
-}
-
-void nx_spl::aux::DailyLogger::createLogDirectory() 
-{
-    if (!fs::exists(m_logDirectory)) 
-    {
-        fs::create_directory(m_logDirectory);
-    }
-}
-
-void nx_spl::aux::DailyLogger::SetVerbosity(LogPriority new_priority) 
-{
-    m_verbosity = new_priority;
+    logFiles.clear();
 }
 
 // Helper function to generate a new filename for rotated log files
@@ -107,23 +123,8 @@ std::string nx_spl::aux::DailyLogger::generateRotatedLogFileName(const std::stri
     timestamp << std::put_time(timeInfo, "%Y-%m-%d_%H-%M-%S");
 
     // Append the timestamp to the current log filename (before the extension if any)
-    std::filesystem::path path(logFilePath);
-    std::string rotatedFileName = path.stem().string() + "_" + timestamp.str() + path.extension().string();
+    std::string rotatedFileName = m_logDirectory + "/log_" + timestamp.str() + ".txt";
 
     // Return the full path of the rotated log file
-    return path.parent_path().string() + "/" + rotatedFileName;
+    return rotatedFileName;
 }
-
-void nx_spl::aux::DailyLogger::Initialize() 
-{
-    createLogDirectory();
-    updateLogFile();
-}
-
-void nx_spl::aux::DailyLogger::Dinitialize()
-{
-    if (m_file.is_open())
-        m_file.close();
-    m_currentLogFile.clear();
-}
-

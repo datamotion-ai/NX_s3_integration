@@ -66,20 +66,28 @@ namespace nx_spl
         // set error code to initial state (NoError generally if storage is available)
         error::code_t checkECode(int *checked, const bool avail, error::code_t toSet)
         {
-            if (checked)
-                *checked = error::NoError;
-
-            if (!avail)
+            try
             {
                 if (checked)
-                    *checked = error::StorageUnavailable;
-                return error::StorageUnavailable;
+                    *checked = error::NoError;
+
+                if (!avail)
+                {
+                    if (checked)
+                        *checked = error::StorageUnavailable;
+                    return error::StorageUnavailable;
+                }
+
+                else if (checked)
+                    *checked = toSet;
+
+                return (error::code_t)*checked;
             }
-
-            else if (checked)
-                *checked = toSet;
-
-            return (error::code_t)*checked;
+            catch(const std::exception& e)
+            {
+                ERRORLOG("Error:",e.what());
+                return error::code_t::UnknownError;
+            }
         }
 
         size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output) 
