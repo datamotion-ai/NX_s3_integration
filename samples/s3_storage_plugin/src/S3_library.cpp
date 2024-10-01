@@ -661,17 +661,24 @@ namespace nx_spl
     void nx_spl::S3StorageFactory::clearMemory()
     {
         DEBUGLOG("S3StorageFactory::clearMemory");
-        while(!g_removeFileFailedList.empty())
+        try
         {
-            std::string filename = g_removeFileFailedList.back();
-            if (fs::exists(filename.c_str()) && (remove(filename.c_str()) != 0)) 
+            while(!g_removeFileFailedList.empty())
             {
-                ERRORLOG("Failed to remove file:",filename.c_str());
+                std::string filename = g_removeFileFailedList.back();
+                if (fs::exists(filename.c_str()) && (remove(filename.c_str()) != 0)) 
+                {
+                    ERRORLOG("Failed to remove file:",filename.c_str());
+                }
+                else
+                {
+                    g_removeFileFailedList.pop_back();
+                }
             }
-            else
-            {
-                g_removeFileFailedList.pop_back();
-            }
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
         }
     }
 
@@ -679,59 +686,66 @@ namespace nx_spl
     {
         INFOLOG("S3StorageFactory::createSession",host,usr,pswd);
         bool ret = false;
-        CURL* curl = curl_easy_init();
-        if (!curl) 
+        try
         {
-            ERRORLOG("Error initializing libcurl.");
-        }
-        else
-        {
-            std::string url = "https://" + host +  "/rest/v2/login/sessions";
-            INFOLOG("url",url);
-            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-            curl_easy_setopt(curl, CURLOPT_POST, 1L);
-
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
-
-            struct curl_slist* headers = nullptr;
-            headers = curl_slist_append(headers, "accept: application/json");
-            headers = curl_slist_append(headers, "Content-Type: application/json");
-            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-            std::string data = "{\"username\":\""+ usr + "\",\"password\":\"" + pswd + "\",\"setCookie\":true}";
-            DEBUGLOG("data",data);
-            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
-
-            std::string response;
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-            CURLcode res1 = curl_easy_perform(curl);
-            if (res1 != CURLE_OK) 
+            CURL* curl = curl_easy_init();
+            if (!curl) 
             {
-                ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
-            } 
-            else 
-            {
-                DEBUGLOG("------->",response);
-                Json::Value root;
-                Json::Reader reader;
-                if(reader.parse(response, root) && (root.isMember("token")))
-                {
-                    token = root["token"].asString();
-                    ret = true;
-                }
-                else
-                {
-                    ERRORLOG("Invalid json resopense",response);
-                }
-                
+                ERRORLOG("Error initializing libcurl.");
             }
-            curl_slist_free_all(headers);
-            curl_easy_reset(curl);
+            else
+            {
+                std::string url = "https://" + host +  "/rest/v2/login/sessions";
+                INFOLOG("url",url);
+                curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+                curl_easy_setopt(curl, CURLOPT_POST, 1L);
+
+                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+                curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
+
+                struct curl_slist* headers = nullptr;
+                headers = curl_slist_append(headers, "accept: application/json");
+                headers = curl_slist_append(headers, "Content-Type: application/json");
+                curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+                std::string data = "{\"username\":\""+ usr + "\",\"password\":\"" + pswd + "\",\"setCookie\":true}";
+                DEBUGLOG("data",data);
+                curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
+
+                std::string response;
+                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
+                curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+                CURLcode res1 = curl_easy_perform(curl);
+                if (res1 != CURLE_OK) 
+                {
+                    ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
+                } 
+                else 
+                {
+                    DEBUGLOG("------->",response);
+                    Json::Value root;
+                    Json::Reader reader;
+                    if(reader.parse(response, root) && (root.isMember("token")))
+                    {
+                        token = root["token"].asString();
+                        ret = true;
+                    }
+                    else
+                    {
+                        ERRORLOG("Invalid json resopense",response);
+                    }
+                    
+                }
+                curl_slist_free_all(headers);
+                curl_easy_reset(curl);
+            }
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
         }
         return ret;
     }
@@ -740,99 +754,123 @@ namespace nx_spl
     {
         DEBUGLOG("S3StorageFactory::isSessionExpired",host,token);
         bool ret = true;
-        CURL* curl = curl_easy_init();
-        if (!curl) 
+        try
         {
-            ERRORLOG("Error initializing libcurl.");
-        }
-        else
-        {
-            std::string url = "https://" + host +  "/rest/v2/login/sessions/" + token;
-            DEBUGLOG("url",url);
-            curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-            curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
-
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-            curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-            curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
-
-            struct curl_slist* headers = nullptr;
-            headers = curl_slist_append(headers, "accept: application/json");
-            std::string runtimeGuidHeader = "x-runtime-guid: " + token;
-            headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
-            curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-            std::string response;
-            curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
-            curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-            CURLcode res1 = curl_easy_perform(curl);
-            if (res1 != CURLE_OK) {
-                ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
-            } else {
-                DEBUGLOG("------->",response);
-                Json::Value root;
-                Json::Reader reader;
-                if(reader.parse(response, root))
-                {
-                    std::string tokenExpiration = root["expiresInS"].asString();
-                    if(!tokenExpiration.empty())
-                        ret = false;
-                }
-                else
-                {
-                    ERRORLOG("Invalid json resopense",response);
-                }
-                
+            CURL* curl = curl_easy_init();
+            if (!curl) 
+            {
+                ERRORLOG("Error initializing libcurl.");
             }
-            curl_slist_free_all(headers);
-            curl_easy_reset(curl);
+            else
+            {
+                std::string url = "https://" + host +  "/rest/v2/login/sessions/" + token;
+                DEBUGLOG("url",url);
+                curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+                curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
+
+                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
+                curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
+
+                curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
+
+                struct curl_slist* headers = nullptr;
+                headers = curl_slist_append(headers, "accept: application/json");
+                std::string runtimeGuidHeader = "x-runtime-guid: " + token;
+                headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
+                curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
+
+                std::string response;
+                curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, aux::WriteCallback);
+                curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
+
+                CURLcode res1 = curl_easy_perform(curl);
+                if (res1 != CURLE_OK) {
+                    ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
+                } else {
+                    DEBUGLOG("------->",response);
+                    Json::Value root;
+                    Json::Reader reader;
+                    if(reader.parse(response, root))
+                    {
+                        std::string tokenExpiration = root["expiresInS"].asString();
+                        if(!tokenExpiration.empty())
+                            ret = false;
+                    }
+                    else
+                    {
+                        ERRORLOG("Invalid json resopense",response);
+                    }
+                    
+                }
+                curl_slist_free_all(headers);
+                curl_easy_reset(curl);
+            }
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
         }
         return ret;
     }
 
     std::string nx_spl::S3StorageFactory::hex_to_string(const std::string hex_input)
     {
-        std::string output;
-        for (size_t i = 0; i < hex_input.length(); i += 2) 
+        try
         {
-            std::string byte = hex_input.substr(i, 2);
-            char chr = (char)(int)strtol(byte.c_str(), nullptr, 16);
-            output.push_back(chr);
+            std::string output;
+            for (size_t i = 0; i < hex_input.length(); i += 2) 
+            {
+                std::string byte = hex_input.substr(i, 2);
+                char chr = (char)(int)strtol(byte.c_str(), nullptr, 16);
+                output.push_back(chr);
+            }
+            return output;
         }
-        return output;
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return "";
+        }
     }
 
     std::string nx_spl::S3StorageFactory::decrypt_string(const std::string input)
     {
-        std::string str_value = hex_to_string(input);
+        DEBUGLOG("S3StorageFactory::decrypt_string",input);
+        try
+        {
+            std::string str_value = hex_to_string(input);
 
-        unsigned char ckey[16] = "*&^%$#@!$%^&#*^";
-        const char ivecstr[AES_BLOCK_SIZE] = "NXStorageSDK\0";
+            unsigned char ckey[16] = "*&^%$#@!$%^&#*^";
+            const char ivecstr[AES_BLOCK_SIZE] = "NXStorageSDK\0";
 
-        unsigned char ivec_enc[AES_BLOCK_SIZE];
-        memcpy(ivec_enc, ivecstr, AES_BLOCK_SIZE);
+            unsigned char ivec_enc[AES_BLOCK_SIZE];
+            memcpy(ivec_enc, ivecstr, AES_BLOCK_SIZE);
 
-        /* data structure that contains the key itself */
-        AES_KEY keyEn;
+            /* data structure that contains the key itself */
+            AES_KEY keyEn;
 
-        unsigned char enc[AES_BLOCK_SIZE];
-        memset(enc, '\0', AES_BLOCK_SIZE);
+            unsigned char enc[AES_BLOCK_SIZE];
+            memset(enc, '\0', AES_BLOCK_SIZE);
 
 
-        /* set the encryption key */
-        AES_set_encrypt_key(ckey, 128, &keyEn);
+            /* set the encryption key */
+            AES_set_encrypt_key(ckey, 128, &keyEn);
 
-        /* set where on the 128 bit encrypted block to begin encryption*/
-        int num = 0;
-        int plaintext_len = str_value.size();
+            /* set where on the 128 bit encrypted block to begin encryption*/
+            int num = 0;
+            int plaintext_len = str_value.size();
 
-        AES_cfb128_encrypt(reinterpret_cast<const unsigned char*>(str_value.c_str()), enc, plaintext_len, &keyEn, ivec_enc, &num, AES_DECRYPT);
+            AES_cfb128_encrypt(reinterpret_cast<const unsigned char*>(str_value.c_str()), enc, plaintext_len, &keyEn, ivec_enc, &num, AES_DECRYPT);
 
-        std::string decrypted_str(reinterpret_cast<char*>(enc), std::strlen(reinterpret_cast<char*>(enc)));
+            std::string decrypted_str(reinterpret_cast<char*>(enc), std::strlen(reinterpret_cast<char*>(enc)));
 
-        return decrypted_str;
+            return decrypted_str;
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return "";
+        }
     }
 
     const char** STORAGE_METHOD_CALL nx_spl::S3StorageFactory::findAvailable() const
@@ -844,10 +882,12 @@ namespace nx_spl
     Storage *STORAGE_METHOD_CALL nx_spl::S3StorageFactory::createStorage(const char *url, int *ecode)
     {
         INFOLOG("S3StorageFactory::createStorage",url);
+
         Storage* ret = nullptr;
-        *ecode = error::NoError;
         try
         {
+            if (ecode)
+                *ecode = error::NoError;
             ret = new S3Storage(url);
         }
         catch (const std::bad_alloc& e)
@@ -871,6 +911,13 @@ namespace nx_spl
                 *ecode = error::UrlNotExists;
             return nullptr;
         }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            if (ecode)
+                *ecode = error::UrlNotExists;
+            return nullptr;
+        }
         return ret;
     }
 
@@ -878,23 +925,31 @@ namespace nx_spl
     const char *STORAGE_METHOD_CALL nx_spl::S3StorageFactory::storageType() const
     {
         DEBUGLOG("S3StorageFactory::storageType");
-        static bool pluginIntegrated = false;
-        if(pluginIntegrated == false)
+        try
         {
-            pluginIntegrated = true;
-            return "s3";
-        }
-        else
-        {
-            if(ServerManager::getInstance()->isLicenseAvailable())
+            static bool pluginIntegrated = false;
+            if(pluginIntegrated == false)
             {
+                pluginIntegrated = true;
                 return "s3";
             }
             else
             {
-                return "unknown";
-            } 
-            
+                if(ServerManager::getInstance()->isLicenseAvailable())
+                {
+                    return "s3";
+                }
+                else
+                {
+                    return "unknown";
+                } 
+                
+            }
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return "";
         }
     }
 
@@ -926,35 +981,58 @@ namespace nx_spl
     void *nx_spl::S3StorageFactory::queryInterface(const nxpl::NX_GUID &interfaceID)
     {
         DEBUGLOG("S3StorageFactory::queryInterface");
-        if (std::memcmp(&interfaceID,
+        try
+        {
+            if (std::memcmp(&interfaceID,
                         &IID_StorageFactory,
                         sizeof(nxpl::NX_GUID)) == 0)
-        {
-            addRef();
-            return static_cast<S3StorageFactory*>(this);
+            {
+                addRef();
+                return static_cast<S3StorageFactory*>(this);
+            }
+            else if (std::memcmp(&interfaceID,
+                                    &nxpl::IID_PluginInterface,
+                                    sizeof(nxpl::IID_PluginInterface)) == 0)
+            {
+                addRef();
+                return static_cast<nxpl::PluginInterface*>(this);
+            }
+            else
+            {
+                DEBUGLOG("Invalid GUID:" ,interfaceID.bytes);
+            }
         }
-        else if (std::memcmp(&interfaceID,
-                                &nxpl::IID_PluginInterface,
-                                sizeof(nxpl::IID_PluginInterface)) == 0)
+        catch(const std::exception& e)
         {
-            addRef();
-            return static_cast<nxpl::PluginInterface*>(this);
-        }
-        else
-        {
-            DEBUGLOG("Invalid GUID:" ,interfaceID.bytes);
+            ERRORLOG("Error:",e.what());
         }
         return nullptr;
     }
     int nx_spl::S3StorageFactory::addRef() const
     {
         DEBUGLOG("S3StorageFactory::addRef");
-        return p_addRef();
+        try
+        {
+            return p_addRef();
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return 0;
+        }
     }
     int nx_spl::S3StorageFactory::releaseRef() const
     {
         DEBUGLOG("S3StorageFactory::releaseRef");
-        return p_releaseRef();
+        try
+        {
+            return p_releaseRef();
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return 0;
+        }
     }
 
     nx_spl::S3Storage::S3Storage(const std::string &url) : 
@@ -1067,128 +1145,166 @@ namespace nx_spl
     int STORAGE_METHOD_CALL nx_spl::S3Storage::isAvailable() const
     {
         DEBUGLOG("S3Storage::isAvailable");
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if(ServerManager::getInstance()->isLicenseAvailable() == false)
+        try
         {
-            ERRORLOG("Invalid License!!");
-            m_available = false;
-            ServerManager::getInstance()->postEvent("License Expired!!,Update License Details!!","");
-            return 0;
-        }
-        if(m_impl.get() != nullptr)
-        {
-            if(m_available == false)
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if(ServerManager::getInstance()->isLicenseAvailable() == false)
             {
-                INFOLOG("Connection lost");
-                try
-                {
-                    m_available = aux::establishS3Connection(m_url,m_accessKey,m_secretKey,m_bucket,m_impl);
-                }
-                catch(const aux::NetworkException& e)
-                {
-                    ERRORLOG("exception:", e.what());
-                    m_available = false;
-                }
-                catch(...)
-                {
-                    ERRORLOG("exception:");
-                    m_available = false;
-                } 
+                ERRORLOG("Invalid License!!");
+                m_available = false;
+                ServerManager::getInstance()->postEvent("License Expired!!,Update License Details!!","");
+                return 0;
             }
+            if(m_impl.get() != nullptr)
+            {
+                if(m_available == false)
+                {
+                    INFOLOG("Connection lost");
+                    try
+                    {
+                        m_available = aux::establishS3Connection(m_url,m_accessKey,m_secretKey,m_bucket,m_impl);
+                    }
+                    catch(const aux::NetworkException& e)
+                    {
+                        ERRORLOG("exception:", e.what());
+                        m_available = false;
+                    }
+                    catch(...)
+                    {
+                        ERRORLOG("exception:");
+                        m_available = false;
+                    } 
+                }
+            }
+            else
+            {
+                ERRORLOG("implPtrType is nullptr!");
+                m_available = false;
+            }
+            if(m_available)
+                return 1;
+            else
+                return 0;
         }
-        else
+        catch(const std::exception& e)
         {
-            ERRORLOG("implPtrType is nullptr!");
-            m_available = false;
-        }
-        if(m_available)
-            return 1;
-        else
+            ERRORLOG("Error:",e.what());
             return 0;
+        }
     }
     IODevice *STORAGE_METHOD_CALL nx_spl::S3Storage::open(const char *uri, int flags, int *ecode) const
     {
         DEBUGLOG("S3Storage::open",uri,flags);
-        if (ecode)
-            *ecode = error::NoError;;
-        IODevice *ret = nullptr;
-        if (isAvailable() == 0)
+        try
         {
-            *ecode = error::StorageUnavailable;
-            INFOLOG("S3 not connected");
-            return ret;
-        }
-        {
-            DEBUGLOG("--------------------------1");
-            std::lock_guard<std::mutex> lock(m_mutex);
-            try
+            if (ecode)
+                *ecode = error::NoError;;
+            IODevice *ret = nullptr;
+            if (isAvailable() == 0)
             {
-                ret = new S3IODevice(
-                    uri,
-                    m_bucket.c_str(),
-                    flags,
-                    m_impl
-                );
+                *ecode = error::StorageUnavailable;
+                INFOLOG("S3 not connected");
                 return ret;
             }
-            catch (const aux::BadUrlException& e)
             {
-                *ecode = error::UrlNotExists;
-                ERRORLOG(e.what());
-                return nullptr;
+                std::lock_guard<std::mutex> lock(m_mutex);
+                try
+                {
+                    ret = new S3IODevice(
+                        uri,
+                        m_bucket.c_str(),
+                        flags,
+                        m_impl
+                    );
+                    return ret;
+                }
+                catch (const aux::BadUrlException& e)
+                {
+                    if(ecode)
+                        *ecode = error::UrlNotExists;
+                    ERRORLOG(e.what());
+                    return nullptr;
+                }
+                catch (...)
+                {
+                    ERRORLOG("Unable to open file",uri,m_bucket,flags);
+                    if(ecode)
+                        *ecode = error::UrlNotExists;
+                    return nullptr;
+                }
             }
-            catch (...)
-            {
-                ERRORLOG("Unable to open file",uri,m_bucket,flags);
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            if(ecode)
                 *ecode = error::UrlNotExists;
-                return nullptr;
-            }
+            return nullptr;
         }
     }
     
     uint64_t STORAGE_METHOD_CALL nx_spl::S3Storage::getFreeSpace(int *ecode) const
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::getFreeSpace");
-        if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
-            return 0;
-        if (ecode)
-            *ecode = error::NoError;
-        uint64_t totalSize = 0;
-        
-        if(g_bucketSizeNeedUpdate)
+        try
         {
-            INFOLOG("Updating Free size");
-            try
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
+                return 0;
+            uint64_t totalSize = 0;
+            
+            if(g_bucketSizeNeedUpdate)
             {
-                totalSize = aux::remoteFolderSize(m_bucket + "/",m_bucket,m_impl);
-                INFOLOG("totalSize:",totalSize);
+                INFOLOG("Updating Free size");
+                try
+                {
+                    totalSize = aux::remoteFolderSize(m_bucket + "/",m_bucket,m_impl);
+                    INFOLOG("totalSize:",totalSize);
+                }
+                catch(const std::runtime_error& e)
+                {
+                    ERRORLOG(e.what());
+                    if (ecode)
+                        *ecode = error::UnknownError;
+                }
+                m_freebucketSize = getTotalSpace(ecode) - totalSize;
+                INFOLOG("Free size",m_freebucketSize);
+                g_bucketSizeNeedUpdate = false;
             }
-            catch(const std::runtime_error& e)
-            {
-                ERRORLOG(e.what());
-            }
-            m_freebucketSize = getTotalSpace(ecode) - totalSize;
-            INFOLOG("Free size",m_freebucketSize);
-            g_bucketSizeNeedUpdate = false;
+            
+            return m_freebucketSize;
         }
-        
-        return m_freebucketSize;  
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            if (ecode)
+                *ecode = error::UnknownError;
+        }  
+        return 0;
     }
 
     uint64_t STORAGE_METHOD_CALL nx_spl::S3Storage::getTotalSpace(int *ecode) const
     {
         DEBUGLOG("S3Storage::getTotalSpace");
-        if(ServerManager::getInstance()->isLicenseAvailable() == false)
+        try
         {
-            // ERRORLOG("Invalid License!!");
+            if(ServerManager::getInstance()->isLicenseAvailable() == false)
+            {
+                if (ecode)
+                    *ecode = error::NotEnoughSpace;
+                return 0;
+            }
             if (ecode)
-                *ecode = error::NotEnoughSpace;
-            return 0;
+                *ecode = error::NoError;
+            return m_totalSpace;
         }
-        if (ecode)
-            *ecode = error::NoError;
-        return m_totalSpace;
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            if (ecode)
+                *ecode = error::UnknownError;
+        }
+        return 0;
     }
     int STORAGE_METHOD_CALL nx_spl::S3Storage::getCapabilities() const
     {
@@ -1205,255 +1321,168 @@ namespace nx_spl
     void STORAGE_METHOD_CALL nx_spl::S3Storage::removeFile(const char *url, int *ecode)
     {
         DEBUGLOG("S3Storage::removeFile",url,m_bucket);
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
-            return;
-        
-        *ecode = error::NoError;
-        
-        if(m_impl.get() != nullptr)
+        try
         {
-            uint64_t size = aux::getRemoteFileSize(url,m_bucket,m_impl);
-            Aws::S3::Model::DeleteObjectRequest request;
-            request.WithBucket(m_bucket)
-                    .WithKey(url);
-
-            const auto response = m_impl->DeleteObject(request);
-            if (!response.IsSuccess()) 
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+                return;
+            
+            if(m_impl.get() != nullptr)
             {
-                ERRORLOG("Failed to delete file",url,m_bucket);
-                *ecode = error::UnknownError;
-            }
-            else 
-            {
-                *ecode = error::NoError;
-                m_freebucketSize = m_freebucketSize + size;
-                INFOLOG("file deleted",url,m_bucket,m_freebucketSize);
-            }
-        }
-        else
-        {
-            ERRORLOG("implPtrType is nullptr!!");
-            *ecode = error::UnknownError;
-        }
-
-        return ;
-    }
-
-    void STORAGE_METHOD_CALL nx_spl::S3Storage::removeDir(const char *url, int *ecode)
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        DEBUGLOG("S3Storage::removeDir",url,m_bucket);
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
-            return;
-        
-        if(m_impl.get() != nullptr)
-        {
-            Aws::S3::Model::DeleteObjectRequest request;
-            request.WithBucket(m_bucket)
-                    .WithKey(url);
-
-            const auto response = m_impl->DeleteObject(request);
-            if (!response.IsSuccess()) 
-            {
-                ERRORLOG("Failed to delete directory",url,m_bucket);
-                *ecode = error::UnknownError;
-            }
-            else 
-            {
-                *ecode = error::NoError;
-                g_bucketSizeNeedUpdate = true;
-                INFOLOG("deleted directory",url,m_bucket);
-            }
-        }
-        else
-        {
-            ERRORLOG("implPtrType is nullptr!");
-            *ecode = error::UnknownError;
-        }
-        return ;
-    }
-
-    void STORAGE_METHOD_CALL nx_spl::S3Storage::renameFile(const char *oldUrl, const char *newUrl, int *ecode)
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        DEBUGLOG("S3Storage::renameFile",oldUrl,newUrl);
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
-            return;
-        
-        if(m_impl.get() != nullptr)
-        {
-            Aws::S3::Model::CopyObjectRequest copyRequest;
-            copyRequest.WithBucket(m_bucket)
-                        .WithCopySource(m_bucket + "/" + oldUrl)
-                        .WithKey(newUrl);
-
-            const auto response = m_impl->CopyObject(copyRequest);
-            if (!response.IsSuccess()) 
-            {
-                ERRORLOG("Failed to copy object",oldUrl,newUrl,m_bucket);
-                *ecode = error::UnknownError;
-            }
-            else 
-            {
+                uint64_t size = aux::getRemoteFileSize(url,m_bucket,m_impl);
                 Aws::S3::Model::DeleteObjectRequest request;
-                request.WithBucket(m_bucket).WithKey(oldUrl);
+                request.WithBucket(m_bucket)
+                        .WithKey(url);
 
                 const auto response = m_impl->DeleteObject(request);
                 if (!response.IsSuccess()) 
                 {
-                    ERRORLOG("Failed to delete object!!",oldUrl,m_bucket);
+                    ERRORLOG("Failed to delete file",url,m_bucket);
+                    if(ecode)
                         *ecode = error::UnknownError;
                 }
                 else 
                 {
-                    *ecode = error::NoError;
+                    if(ecode)
+                        *ecode = error::NoError;
+                    m_freebucketSize = m_freebucketSize + size;
+                    INFOLOG("file deleted",url,m_bucket,m_freebucketSize);
                 }
             }
+            else
+            {
+                ERRORLOG("implPtrType is nullptr!!");
+                if(ecode)
+                    *ecode = error::UnknownError;
+            }
         }
-        else
+        catch(const std::exception& e)
         {
-            ERRORLOG("implPtrType is nullptr!")
-            *ecode = error::UnknownError;
+            ERRORLOG("Error:",e.what());
+            if(ecode)
+                *ecode = error::UnknownError;
         }
-        return ;
+    }
+
+    void STORAGE_METHOD_CALL nx_spl::S3Storage::removeDir(const char *url, int *ecode)
+    {
+        DEBUGLOG("S3Storage::removeDir",url,m_bucket);
+        try
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+                return;
+            
+            if(m_impl.get() != nullptr)
+            {
+                Aws::S3::Model::DeleteObjectRequest request;
+                request.WithBucket(m_bucket)
+                        .WithKey(url);
+
+                const auto response = m_impl->DeleteObject(request);
+                if (!response.IsSuccess()) 
+                {
+                    ERRORLOG("Failed to delete directory",url,m_bucket);
+                    if(ecode)
+                        *ecode = error::UnknownError;
+                }
+                else 
+                {
+                    if(ecode)
+                        *ecode = error::NoError;
+                    g_bucketSizeNeedUpdate = true;
+                    INFOLOG("deleted directory",url,m_bucket);
+                }
+            }
+            else
+            {
+                ERRORLOG("implPtrType is nullptr!");
+                if(ecode)
+                    *ecode = error::UnknownError;
+            }
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            if(ecode)
+                *ecode = error::UnknownError;
+        }
+    }
+
+    void STORAGE_METHOD_CALL nx_spl::S3Storage::renameFile(const char *oldUrl, const char *newUrl, int *ecode)
+    {
+        DEBUGLOG("S3Storage::renameFile",oldUrl,newUrl);
+        try
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+                return;
+            
+            if(m_impl.get() != nullptr)
+            {
+                Aws::S3::Model::CopyObjectRequest copyRequest;
+                copyRequest.WithBucket(m_bucket)
+                            .WithCopySource(m_bucket + "/" + oldUrl)
+                            .WithKey(newUrl);
+
+                const auto response = m_impl->CopyObject(copyRequest);
+                if (!response.IsSuccess()) 
+                {
+                    ERRORLOG("Failed to copy object",oldUrl,newUrl,m_bucket);
+                    if(ecode)
+                        *ecode = error::UnknownError;
+                }
+                else 
+                {
+                    Aws::S3::Model::DeleteObjectRequest request;
+                    request.WithBucket(m_bucket).WithKey(oldUrl);
+
+                    const auto response = m_impl->DeleteObject(request);
+                    if (!response.IsSuccess()) 
+                    {
+                        ERRORLOG("Failed to delete object!!",oldUrl,m_bucket);
+                        if(ecode)
+                            *ecode = error::UnknownError;
+                    }
+                    else 
+                    {
+                        if(ecode)
+                            *ecode = error::NoError;
+                    }
+                }
+            }
+            else
+            {
+                ERRORLOG("implPtrType is nullptr!")
+                if(ecode)
+                    *ecode = error::UnknownError;
+            }
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            if(ecode)
+                *ecode = error::UnknownError;
+        }
     }
 
     FileInfoIterator *STORAGE_METHOD_CALL nx_spl::S3Storage::getFileIterator(const char *dirUrl, int *ecode) const
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::getFileIterator",dirUrl);
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
-            return nullptr;
-
-        if(m_impl.get() == nullptr)
-        {
-            ERRORLOG("implPtrType is nullptr");
-            return nullptr;
-        }
-            
-            
-        std::string uri = dirUrl;
-        std::string dir;
-        if(uri[0] == '/')
-        {
-            dir.assign(uri.begin()+1, uri.end());
-        }
-        else
-        {
-            dir.assign(uri.begin(), uri.end());
-        }
-        dir.append("/");
-        
-
-        Aws::S3::Model::ListObjectsV2Request request;
-        request.SetBucket(m_bucket);
-        request.WithPrefix(dir);
-        request.WithDelimiter("/");
-        
-        auto outcome = m_impl->ListObjectsV2(request);
-        if (outcome.IsSuccess()) 
-        {
-            auto folderObjects = outcome.GetResult().GetCommonPrefixes();
-            std::vector<std::string> urls;
-            for (const auto& object : folderObjects) 
-            {
-                std::string line;
-                std::string folderName;
-                folderName.assign(object.GetPrefix().begin()+dir.size(),object.GetPrefix().end()-1);
-                line.append(folderName.c_str());
-                line.append(",");
-                line.append(std::to_string(isDir));
-                line.append(",");
-                line.append("0");
-                DEBUGLOG(line);
-                urls.push_back(line);
-                line.clear();
-            }
-            
-            auto fileObjects = outcome.GetResult().GetContents();
-            for (const auto& object : fileObjects) 
-            {
-                std::string line;
-                std::string fileName;
-                fileName.assign(object.GetKey().begin()+dir.size(),object.GetKey().end());
-                line.append(fileName);
-                line.append(",");
-                line.append(std::to_string(isFile));
-                line.append(",");
-                Aws::S3::Model::HeadObjectRequest headObjectRequest;
-                headObjectRequest.SetBucket(m_bucket);
-                headObjectRequest.SetKey(object.GetKey());
-                const auto response = m_impl->HeadObject(headObjectRequest);
-                if (!response.IsSuccess()) 
-                {
-                    line.append("0");
-                }
-                else 
-                {
-                    line.append(std::to_string(response.GetResult().GetContentLength()));
-                }
-                DEBUGLOG(line);
-                urls.push_back(line);
-                line.clear();
-            }
-            if(!urls.empty())
-            {
-                return new S3FileInfoIterator(
-                    std::move(urls),
-                    dirUrl
-                );
-            }
-        }
-        else 
-        {
-            ERRORLOG("Failed to lists objects!!",outcome.GetError().GetMessage())
-            return nullptr;
-        }
-        return nullptr;
-    }
-
-    int STORAGE_METHOD_CALL nx_spl::S3Storage::fileExists(const char *url, int *ecode) const
-    {
-        DEBUGLOG("S3Storage::fileExists",url);
-
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
-            return 0;
-
-        if (!isAvailable())
-        {
-            *ecode = error::StorageUnavailable;
-            DEBUGLOG("S3 not connected");
-            return 0;
-        }
-        else
+        try
         {
             std::lock_guard<std::mutex> lock(m_mutex);
+            if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+                return nullptr;
 
-            if (!aux::remoteUriExists(url,m_bucket, m_impl))
+            if(m_impl.get() == nullptr)
             {
-                INFOLOG("file not found:",url,m_bucket);
-                *ecode = error::UrlNotExists;
-                return 0;
+                ERRORLOG("implPtrType is nullptr");
+                return nullptr;
             }
-            else
-            {
-                DEBUGLOG("file found:",url,m_bucket);
-                return 1;
-            }
-        }
-    }
-
-    int STORAGE_METHOD_CALL nx_spl::S3Storage::dirExists(const char *url, int *ecode) const
-    {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        DEBUGLOG("S3Storage::dirExists",url);
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
-            return 0;
-
-        if(m_impl.get() != nullptr)
-        {
-            std::string uri = url;
+                
+                
+            std::string uri = dirUrl;
             std::string dir;
             if(uri[0] == '/')
             {
@@ -1464,6 +1493,7 @@ namespace nx_spl
                 dir.assign(uri.begin(), uri.end());
             }
             dir.append("/");
+            
 
             Aws::S3::Model::ListObjectsV2Request request;
             request.SetBucket(m_bucket);
@@ -1473,69 +1503,250 @@ namespace nx_spl
             auto outcome = m_impl->ListObjectsV2(request);
             if (outcome.IsSuccess()) 
             {
-                DEBUGLOG("Directory found:",dir,m_bucket);
-                return 1;
+                auto folderObjects = outcome.GetResult().GetCommonPrefixes();
+                std::vector<std::string> urls;
+                for (const auto& object : folderObjects) 
+                {
+                    std::string line;
+                    std::string folderName;
+                    folderName.assign(object.GetPrefix().begin()+dir.size(),object.GetPrefix().end()-1);
+                    line.append(folderName.c_str());
+                    line.append(",");
+                    line.append(std::to_string(isDir));
+                    line.append(",");
+                    line.append("0");
+                    DEBUGLOG(line);
+                    urls.push_back(line);
+                    line.clear();
+                }
+                
+                auto fileObjects = outcome.GetResult().GetContents();
+                for (const auto& object : fileObjects) 
+                {
+                    std::string line;
+                    std::string fileName;
+                    fileName.assign(object.GetKey().begin()+dir.size(),object.GetKey().end());
+                    line.append(fileName);
+                    line.append(",");
+                    line.append(std::to_string(isFile));
+                    line.append(",");
+                    Aws::S3::Model::HeadObjectRequest headObjectRequest;
+                    headObjectRequest.SetBucket(m_bucket);
+                    headObjectRequest.SetKey(object.GetKey());
+                    const auto response = m_impl->HeadObject(headObjectRequest);
+                    if (!response.IsSuccess()) 
+                    {
+                        line.append("0");
+                    }
+                    else 
+                    {
+                        line.append(std::to_string(response.GetResult().GetContentLength()));
+                    }
+                    DEBUGLOG(line);
+                    urls.push_back(line);
+                    line.clear();
+                }
+                if(!urls.empty())
+                {
+                    return new S3FileInfoIterator(
+                        std::move(urls),
+                        dirUrl
+                    );
+                }
+            }
+            else 
+            {
+                ERRORLOG("Failed to lists objects!!",outcome.GetError().GetMessage())
+                return nullptr;
+            }
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+        }
+        return nullptr;
+    }
+
+    int STORAGE_METHOD_CALL nx_spl::S3Storage::fileExists(const char *url, int *ecode) const
+    {
+        DEBUGLOG("S3Storage::fileExists",url);
+        try
+        {
+            if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+                return 0;
+
+            if (!isAvailable())
+            {
+                if(ecode)
+                    *ecode = error::StorageUnavailable;
+                DEBUGLOG("S3 not connected");
+                return 0;
             }
             else
             {
-                ERRORLOG("Failed to find directory:",dir,m_bucket,outcome.GetError().GetMessage());
+                std::lock_guard<std::mutex> lock(m_mutex);
+
+                if (!aux::remoteUriExists(url,m_bucket, m_impl))
+                {
+                    INFOLOG("file not found:",url,m_bucket);
+                    if(ecode)
+                        *ecode = error::UrlNotExists;
+                    return 0;
+                }
+                else
+                {
+                    DEBUGLOG("file found:",url,m_bucket);
+                    return 1;
+                }
+            }
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            if(ecode)
                 *ecode = error::UrlNotExists;
+            return 0;
+        }
+    }
+
+    int STORAGE_METHOD_CALL nx_spl::S3Storage::dirExists(const char *url, int *ecode) const
+    {
+        DEBUGLOG("S3Storage::dirExists",url);
+        try
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+                return 0;
+
+            if(m_impl.get() != nullptr)
+            {
+                std::string uri = url;
+                std::string dir;
+                if(uri[0] == '/')
+                {
+                    dir.assign(uri.begin()+1, uri.end());
+                }
+                else
+                {
+                    dir.assign(uri.begin(), uri.end());
+                }
+                dir.append("/");
+
+                Aws::S3::Model::ListObjectsV2Request request;
+                request.SetBucket(m_bucket);
+                request.WithPrefix(dir);
+                request.WithDelimiter("/");
+                
+                auto outcome = m_impl->ListObjectsV2(request);
+                if (outcome.IsSuccess()) 
+                {
+                    DEBUGLOG("Directory found:",dir,m_bucket);
+                    return 1;
+                }
+                else
+                {
+                    ERRORLOG("Failed to find directory:",dir,m_bucket,outcome.GetError().GetMessage());
+                    if(ecode)
+                        *ecode = error::UrlNotExists;
+                    return 0;
+                }
+            }
+            else
+            {
+                ERRORLOG("implPtrType is null ptr!!");
+                if(ecode)
+                    *ecode = error::UnknownError;
                 return 0;
             }
         }
-        else
+        catch(const std::exception& e)
         {
-            ERRORLOG("implPtrType is null ptr!!");
+            ERRORLOG("Error:",e.what());
+            if(ecode)
+                *ecode = error::UnknownError;
             return 0;
         }
     }
 
     uint64_t STORAGE_METHOD_CALL nx_spl::S3Storage::fileSize(const char *url, int *ecode) const
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
         DEBUGLOG("S3Storage::fileSize");
-        if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
-            return 0;
+        try
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
 
-        uint64_t size = aux::getRemoteFileSize(url,m_bucket,m_impl);
-        DEBUGLOG("File size:",size);
-        m_freebucketSize = m_freebucketSize - size;
-        DEBUGLOG("Free bucket size:",m_freebucketSize);
-        return size;
+            if(aux::checkECode(ecode, getAvail()) != nx_spl::error::NoError)
+                return 0;
+
+            uint64_t size = aux::getRemoteFileSize(url,m_bucket,m_impl);
+            DEBUGLOG("File size:",size);
+            m_freebucketSize = m_freebucketSize - size;
+            DEBUGLOG("Free bucket size:",m_freebucketSize);
+            return size;
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return 0;
+        }
+        
     }
 
     void *nx_spl::S3Storage::queryInterface(const nxpl::NX_GUID &interfaceID)
     {
         DEBUGLOG("S3Storage::queryInterface");
-        if (std::memcmp(&interfaceID,
-                        &IID_Storage,
-                        sizeof(nxpl::NX_GUID)) == 0)
+        try
         {
-            addRef();
-            return static_cast<nx_spl::Storage*>(this);
+            if (std::memcmp(&interfaceID,
+                            &IID_Storage,
+                            sizeof(nxpl::NX_GUID)) == 0)
+            {
+                addRef();
+                return static_cast<nx_spl::Storage*>(this);
+            }
+            else if (std::memcmp(&interfaceID,
+                                    &nxpl::IID_PluginInterface,
+                                    sizeof(nxpl::IID_PluginInterface)) == 0)
+            {
+                addRef();
+                return static_cast<nxpl::PluginInterface*>(this);
+            }
+            else
+            {
+                DEBUGLOG("Invalid GUID:" ,interfaceID.bytes);
+            }
         }
-        else if (std::memcmp(&interfaceID,
-                                &nxpl::IID_PluginInterface,
-                                sizeof(nxpl::IID_PluginInterface)) == 0)
+        catch(const std::exception& e)
         {
-            addRef();
-            return static_cast<nxpl::PluginInterface*>(this);
-        }
-        else
-        {
-            DEBUGLOG("Invalid GUID:" ,interfaceID.bytes);
+            ERRORLOG("Error:",e.what());
         }
         return nullptr;
     }
     int nx_spl::S3Storage::addRef() const
     {
         DEBUGLOG("S3Storage::addRef");
-        return p_addRef();
+        try
+        {
+            return p_addRef();
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return 0;
+        }
     }
     int nx_spl::S3Storage::releaseRef() const
     {
         DEBUGLOG("S3Storage::releaseRef");
-        return p_releaseRef();
+        try
+        {
+            return p_releaseRef();
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return 0;
+        }
     }
     nx_spl::S3Storage::~S3Storage()
     {
@@ -1703,6 +1914,15 @@ namespace nx_spl
                 throw aux::InternalErrorException("Failed to open local file");
             }
         }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error while IO operation",uri,bucket,mode,e.what());
+            if (remove(m_localfile.fullPath.c_str()) != 0) 
+            {
+                ERRORLOG("Failed to remove file:",m_localfile.fullPath.c_str());
+            }
+            throw ;
+        }
         catch(...)
         {
             ERRORLOG("Error while IO operation",uri,bucket,mode);
@@ -1717,129 +1937,160 @@ namespace nx_spl
 
     uint32_t STORAGE_METHOD_CALL nx_spl::S3IODevice::write(const void *src, const uint32_t size, int *ecode)
     {
-        std::lock_guard<std::mutex> lock(m_mutex);
-
-        if (!(m_mode & io::WriteOnly))
-        {
-            if (ecode)
-                *ecode = error::WriteNotSupported;
-            return 0;
-        }
-        if(m_file == NULL)
-        {
-            ERRORLOG("m_file is null",m_localfile.fullPath);
-            if (ecode)
-                *ecode = error::UrlNotExists;
-            return 0;
-        } 
         DEBUGLOG("S3IODevice::write:",m_localfile.fullPath,ftell(m_file),m_pos,size);
-
-        if (ecode)
-            *ecode = error::NoError;
-
-        int writeSize = fwrite(src, 1, size, m_file);
-        if(writeSize < size)
+        try
         {
-            ERRORLOG("Failed to write into file",writeSize,size);
-            if (ecode)
-                *ecode = error::NotEnoughSpace;
-             return writeSize;
-        }
-        m_pos += writeSize;
-        m_localsize += writeSize;
-        m_altered = true;
-        m_fileWriteCount++;
-        if((m_localfile.fullPath.find(".nxdb") != std::string::npos) && (m_fileWriteCount >= MAX_FILE_WRITE_COUNT))
-        {
-            fclose(m_file);
-            flush();
-            m_file = fopen(m_localfile.fullPath.c_str(), "r+b");
-            if (fseek(m_file, (int)m_pos, SEEK_SET) != 0) 
+            std::lock_guard<std::mutex> lock(m_mutex);
+
+            if (!(m_mode & io::WriteOnly))
             {
-                ERRORLOG("Error while seek file:",m_localfile.fullPath);
+                if (ecode)
+                    *ecode = error::WriteNotSupported;
+                return 0;
+            }
+            if(m_file == NULL)
+            {
+                ERRORLOG("m_file is null",m_localfile.fullPath);
+                if (ecode)
+                    *ecode = error::UrlNotExists;
+                return 0;
+            } 
+
+            if (ecode)
+                *ecode = error::NoError;
+
+            int writeSize = fwrite(src, 1, size, m_file);
+            if(writeSize < size)
+            {
+                ERRORLOG("Failed to write into file",writeSize,size);
                 if (ecode)
                     *ecode = error::NotEnoughSpace;
-                writeSize = 0;
+                return writeSize;
             }
-            m_fileWriteCount = 0;
-        } 
-        return writeSize;
+            m_pos += writeSize;
+            m_localsize += writeSize;
+            m_altered = true;
+            m_fileWriteCount++;
+            if((m_localfile.fullPath.find(".nxdb") != std::string::npos) && (m_fileWriteCount >= MAX_FILE_WRITE_COUNT))
+            {
+                fclose(m_file);
+                flush();
+                m_file = fopen(m_localfile.fullPath.c_str(), "r+b");
+                if (fseek(m_file, (int)m_pos, SEEK_SET) != 0) 
+                {
+                    ERRORLOG("Error while seek file:",m_localfile.fullPath);
+                    if (ecode)
+                        *ecode = error::NotEnoughSpace;
+                    writeSize = 0;
+                }
+                m_fileWriteCount = 0;
+            } 
+            return writeSize;
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            if (ecode)
+                *ecode = error::NotEnoughSpace;
+            return 0;
+        }
     }
 
     uint32_t STORAGE_METHOD_CALL nx_spl::S3IODevice::read(void *dst, const uint32_t size, int *ecode) const
     {
         DEBUGLOG("S3IODevice::read",m_localfile.fullPath,size,m_localsize,m_pos);
-        std::lock_guard<std::mutex> lock(m_mutex);
-        uint32_t readSize = 0;
-        
-        if (!(m_mode & io::ReadOnly))
+        try
         {
-            if (ecode)
-                *ecode = error::ReadNotSupported;
-            return 0;
-        }
-
-        if (m_file == NULL)
-        {
-            ERRORLOG("Error while reading file:",m_localfile.fullPath);
-            if (ecode)
-                *ecode = error::UrlNotExists;
-            return 0;
-        }
-
-        if (ecode)
-            *ecode = error::NoError;
-
-        readSize = fread(dst, 1, size, m_file);
-        if(readSize < size)
-        {
-            if (feof(m_file)) 
+            std::lock_guard<std::mutex> lock(m_mutex);
+            uint32_t readSize = 0;
+            
+            if (!(m_mode & io::ReadOnly))
             {
-                DEBUGLOG("EOF",m_localfile.fullPath,readSize);
-                m_pos += readSize;
-                if((readSize <= 0) && ecode)
-                    *ecode = error::EndOfFile;
-                return readSize;
-            } 
-            else if (ferror(m_file)) 
-            {
-                ERRORLOG("Error reading from file",m_localfile.fullPath);
                 if (ecode)
-                    *ecode = error::UnknownError;
-                 return 0;
+                    *ecode = error::ReadNotSupported;
+                return 0;
             }
+
+            if (m_file == NULL)
+            {
+                ERRORLOG("Error while reading file:",m_localfile.fullPath);
+                if (ecode)
+                    *ecode = error::UrlNotExists;
+                return 0;
+            }
+
+            if (ecode)
+                *ecode = error::NoError;
+
+            readSize = fread(dst, 1, size, m_file);
+            if(readSize < size)
+            {
+                if (feof(m_file)) 
+                {
+                    DEBUGLOG("EOF",m_localfile.fullPath,readSize);
+                    m_pos += readSize;
+                    if((readSize <= 0) && ecode)
+                        *ecode = error::EndOfFile;
+                    return readSize;
+                } 
+                else if (ferror(m_file)) 
+                {
+                    ERRORLOG("Error reading from file",m_localfile.fullPath);
+                    if (ecode)
+                        *ecode = error::UnknownError;
+                    return 0;
+                }
+            }
+            m_pos += readSize;
+            DEBUGLOG("S3IODevice::read",readSize);
+            return readSize;
         }
-        m_pos += readSize;
-        DEBUGLOG("S3IODevice::read",readSize);
-        return readSize;
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            if (ecode)
+                *ecode = error::UnknownError;
+            return 0;
+        }
     }
 
     int STORAGE_METHOD_CALL nx_spl::S3IODevice::seek(uint64_t pos, int *ecode)
     {
         DEBUGLOG("S3IODevice::seek",m_localfile.fullPath,m_pos,pos);
-        std::lock_guard<std::mutex> lock(m_mutex);
-
-        if (m_file == NULL)
+        try
         {
-            ERRORLOG("m_file nullptr",m_localfile.fullPath);
+            std::lock_guard<std::mutex> lock(m_mutex);
+
+            if (m_file == NULL)
+            {
+                ERRORLOG("m_file nullptr",m_localfile.fullPath);
+                if (ecode)
+                    *ecode = error::UrlNotExists;
+                return 0;
+            }
+
             if (ecode)
-                *ecode = error::UrlNotExists;
-            return 0;
-        }
+                *ecode = error::NoError;
 
-        if (ecode)
-            *ecode = error::NoError;
-
-        if ((fseek(m_file, (int)pos, SEEK_SET) != 0))
-        {
-            ERRORLOG("Error while seek file:",m_localfile.fullPath);
-            *ecode = error::UnknownError;
-            return 0;
+            if ((fseek(m_file, (int)pos, SEEK_SET) != 0))
+            {
+                ERRORLOG("Error while seek file:",m_localfile.fullPath);
+                if (ecode)
+                    *ecode = error::UnknownError;
+                return 0;
+            }
+            else
+            {
+                m_pos = pos;
+                return 1;
+            }
         }
-        else
+        catch(const std::exception& e)
         {
-            m_pos = pos;
-            return 1;
+            ERRORLOG("Error:",e.what());
+            if (ecode)
+                *ecode = error::UnknownError;
+            return 0;
         }
     }
 
@@ -1852,33 +2103,49 @@ namespace nx_spl
     uint32_t STORAGE_METHOD_CALL nx_spl::S3IODevice::size(int *ecode) const
     {
         DEBUGLOG("S3IODevice::size");
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (ecode)
-            *ecode = error::NoError;
-        DEBUGLOG("local file size:",m_localfile.fullPath, m_localsize);
-        return static_cast<uint32_t>(m_localsize);
+        try
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (ecode)
+                *ecode = error::NoError;
+            DEBUGLOG("local file size:",m_localfile.fullPath, m_localsize);
+            return static_cast<uint32_t>(m_localsize);
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return 0;
+        }
+        
     }
 
     void *nx_spl::S3IODevice::queryInterface(const nxpl::NX_GUID &interfaceID)
     {
         DEBUGLOG("S3IODevice::queryInterface");
-        if (std::memcmp(&interfaceID,
-                        &IID_IODevice,
-                        sizeof(nxpl::NX_GUID)) == 0)
+        try
         {
-            addRef();
-            return static_cast<nx_spl::IODevice*>(this);
+            if (std::memcmp(&interfaceID,
+                            &IID_IODevice,
+                            sizeof(nxpl::NX_GUID)) == 0)
+            {
+                addRef();
+                return static_cast<nx_spl::IODevice*>(this);
+            }
+            else if (std::memcmp(&interfaceID,
+                                    &nxpl::IID_PluginInterface,
+                                    sizeof(nxpl::IID_PluginInterface)) == 0)
+            {
+                addRef();
+                return static_cast<nxpl::PluginInterface*>(this);
+            }
+            else
+            {
+                DEBUGLOG("Invalid GUID:" ,interfaceID.bytes);
+            }
         }
-        else if (std::memcmp(&interfaceID,
-                                &nxpl::IID_PluginInterface,
-                                sizeof(nxpl::IID_PluginInterface)) == 0)
+        catch(const std::exception& e)
         {
-            addRef();
-            return static_cast<nxpl::PluginInterface*>(this);
-        }
-        else
-        {
-            DEBUGLOG("Invalid GUID:" ,interfaceID.bytes);
+            ERRORLOG("Error:",e.what());
         }
         return nullptr;
     }
@@ -1886,77 +2153,105 @@ namespace nx_spl
     int nx_spl::S3IODevice::addRef() const
     {
         DEBUGLOG("S3IODevice::addRef");
-        return p_addRef();
+        try
+        {
+            return p_addRef();
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return 0;
+        }
     }
 
     int nx_spl::S3IODevice::releaseRef() const
     {
         DEBUGLOG("S3IODevice::releaseRef");
-        return p_releaseRef();
+        try
+        {
+            return p_releaseRef();
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return 0;
+        }
     }
 
     void nx_spl::S3IODevice::flush()
     {
         DEBUGLOG("S3IODevice::flush");
-        if(m_altered)
+        try
         {
-            m_altered = false;
-            if(m_impl.get() != nullptr)
+            if(m_altered)
             {
-                try
+                m_altered = false;
+                if(m_impl.get() != nullptr)
                 {
-                    std::shared_ptr<Aws::IOStream> inputData =
-                    Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
-                        m_localfile.fullPath.c_str(),
-                        std::ios_base::in | std::ios_base::binary);
-                    if (!*inputData) {
-                        ERRORLOG("Unable to read local file:",m_localfile.fullPath);
-                        throw aux::InternalErrorException("Error unable to read local file ");
-                    }
-                    DEBUGLOG("Uploading file!!",m_localfile.fullPath);
-                    Aws::S3::Model::PutObjectRequest request;
-                    request.SetBucket(m_bucket);
-                    request.SetKey(m_uri);
-                    request.SetBody(inputData);
-                    Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
-                    static_cast<Aws::FStream*>(inputData.get())->close();
-                    if (!outcome.IsSuccess()) 
-                    {
-                        ERRORLOG("Unable to upload file:",m_uri,outcome.GetError().GetMessage().c_str());
-                        throw aux::InternalErrorException(outcome.GetError().GetMessage().c_str());
-                    }
-                    else 
-                    {
-                        DEBUGLOG("Successfully uploaded file:",m_localfile.fullPath,m_uri,m_bucket);
-                    }
+                        std::shared_ptr<Aws::IOStream> inputData =
+                        Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
+                            m_localfile.fullPath.c_str(),
+                            std::ios_base::in | std::ios_base::binary);
+                        if (!*inputData) {
+                            ERRORLOG("Unable to read local file:",m_localfile.fullPath);
+                            throw aux::InternalErrorException("Error unable to read local file ");
+                        }
+                        DEBUGLOG("Uploading file!!",m_localfile.fullPath);
+                        Aws::S3::Model::PutObjectRequest request;
+                        request.SetBucket(m_bucket);
+                        request.SetKey(m_uri);
+                        request.SetBody(inputData);
+                        Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
+                        static_cast<Aws::FStream*>(inputData.get())->close();
+                        if (!outcome.IsSuccess()) 
+                        {
+                            ERRORLOG("Unable to upload file:",m_uri,outcome.GetError().GetMessage().c_str());
+                            throw aux::InternalErrorException(outcome.GetError().GetMessage().c_str());
+                        }
+                        else 
+                        {
+                            DEBUGLOG("Successfully uploaded file:",m_localfile.fullPath,m_uri,m_bucket);
+                        }
+                    
                 }
-                catch(aux::InternalErrorException &e)
+                else
                 {
-                    ERRORLOG(e.what());
-                }
-                catch(...)
-                {
-                    ERRORLOG("Exception!!");
+                    ERRORLOG("implPtrType is nullptr!")
                 }
             }
-            else
-            {
-                ERRORLOG("implPtrType is nullptr!")
-            }
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+        }
+        catch(aux::InternalErrorException &e)
+        {
+            ERRORLOG(e.what());
+        }
+        catch(...)
+        {
+            ERRORLOG("Exception!!");
         }
     }
 
     S3IODevice::~S3IODevice()
     {
         DEBUGLOG("S3IODevice::~S3IODevice",m_localfile.fullPath);
-        if (m_file != NULL)
-            fclose(m_file);
-        m_file = NULL;
-        flush();
-        if (fs::exists(m_localfile.fullPath.c_str()) && (remove(m_localfile.fullPath.c_str()) != 0)) 
+        try
         {
-            ERRORLOG("Failed to remove file:",m_localfile.fullPath.c_str());
-            g_removeFileFailedList.push_back(m_localfile.fullPath);
+            if (m_file != NULL)
+                fclose(m_file);
+            m_file = NULL;
+            flush();
+            if (fs::exists(m_localfile.fullPath.c_str()) && (remove(m_localfile.fullPath.c_str()) != 0)) 
+            {
+                ERRORLOG("Failed to remove file:",m_localfile.fullPath.c_str());
+                g_removeFileFailedList.push_back(m_localfile.fullPath);
+            }
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
         }
     }
 
@@ -1970,42 +2265,51 @@ namespace nx_spl
     FileInfo *STORAGE_METHOD_CALL S3FileInfoIterator::next(int *ecode) const
     {
         DEBUGLOG("S3FileInfoIterator::next:");
-        if (ecode)
-            *ecode = nx_spl::error::NoError;
-
-        if (m_curFile != m_fileList.cend())
+        try
         {
-            std::string line = m_curFile->c_str();
-            DEBUGLOG("S3FileInfoIterator::next:",line);
-            ++m_curFile;
-            std::stringstream ss(line);
-            std::vector<std::string> substrings;
-            std::string substring;
-            while (std::getline(ss, substring, ',')) 
+            if (ecode)
+                *ecode = nx_spl::error::NoError;
+
+            if (m_curFile != m_fileList.cend())
             {
-                substrings.push_back(substring);
-            }  
-            if(substrings.size() == 3)
-            {
-                m_fileInfo.url = substrings.at(0).c_str();
-                if(std::stoi(substrings.at(1)) == 0)
+                std::string line = m_curFile->c_str();
+                DEBUGLOG("S3FileInfoIterator::next:",line);
+                ++m_curFile;
+                std::stringstream ss(line);
+                std::vector<std::string> substrings;
+                std::string substring;
+                while (std::getline(ss, substring, ',')) 
                 {
-                    m_fileInfo.type = isFile;
-                }
+                    substrings.push_back(substring);
+                }  
+                if(substrings.size() == 3)
+                {
+                    m_fileInfo.url = substrings.at(0).c_str();
+                    if(std::stoi(substrings.at(1)) == 0)
+                    {
+                        m_fileInfo.type = isFile;
+                    }
+                    else
+                    {
+                        m_fileInfo.type = isDir;
+                    }
+                    m_fileInfo.size = std::stoi(substrings.at(2));
+                    DEBUGLOG("----------------->",m_fileInfo.url);
+                    substrings.clear();
+                    return &m_fileInfo;
+                } 
                 else
                 {
-                    m_fileInfo.type = isDir;
+                    substrings.clear();
+                    INFOLOG("Invalid file url:" ,line);
                 }
-                m_fileInfo.size = std::stoi(substrings.at(2));
-                DEBUGLOG("----------------->",m_fileInfo.url);
-                substrings.clear();
-                return &m_fileInfo;
-            } 
-            else
-            {
-                substrings.clear();
-                INFOLOG("Invalid file url:" ,line);
             }
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            if (ecode)
+                *ecode = nx_spl::error::UnknownError;
         }
         return nullptr;
     }
@@ -2013,23 +2317,30 @@ namespace nx_spl
     void *nx_spl::S3FileInfoIterator::queryInterface(const nxpl::NX_GUID &interfaceID)
     {
         DEBUGLOG("S3FileInfoIterator::queryInterface");
-        if (std::memcmp(&interfaceID,
-                        &IID_FileInfoIterator,
-                        sizeof(nxpl::NX_GUID)) == 0)
+        try
         {
-            addRef();
-            return static_cast<nx_spl::FileInfoIterator*>(this);
+            if (std::memcmp(&interfaceID,
+                            &IID_FileInfoIterator,
+                            sizeof(nxpl::NX_GUID)) == 0)
+            {
+                addRef();
+                return static_cast<nx_spl::FileInfoIterator*>(this);
+            }
+            else if (std::memcmp(&interfaceID,
+                                    &nxpl::IID_PluginInterface,
+                                    sizeof(nxpl::IID_PluginInterface)) == 0)
+            {
+                addRef();
+                return static_cast<nxpl::PluginInterface*>(this);
+            }
+            else
+            {
+                DEBUGLOG("Invalid GUID:" ,interfaceID.bytes);
+            }
         }
-        else if (std::memcmp(&interfaceID,
-                                &nxpl::IID_PluginInterface,
-                                sizeof(nxpl::IID_PluginInterface)) == 0)
+        catch(const std::exception& e)
         {
-            addRef();
-            return static_cast<nxpl::PluginInterface*>(this);
-        }
-        else
-        {
-            DEBUGLOG("Invalid GUID:" ,interfaceID.bytes);
+            ERRORLOG("Error:",e.what());
         }
         return nullptr;
     }
@@ -2037,13 +2348,29 @@ namespace nx_spl
     int nx_spl::S3FileInfoIterator::addRef() const
     {
         DEBUGLOG("S3FileInfoIterator::addRef");
-        return p_addRef();
+        try
+        {
+            return p_addRef();
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return 0;
+        }
     }
 
     int nx_spl::S3FileInfoIterator::releaseRef() const
     {
         DEBUGLOG("S3FileInfoIterator::releaseRef");
-        return p_releaseRef();  
+        try
+        {
+            return p_releaseRef();
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Error:",e.what());
+            return 0;
+        }
     }
 
     nx_spl::S3FileInfoIterator::~S3FileInfoIterator()

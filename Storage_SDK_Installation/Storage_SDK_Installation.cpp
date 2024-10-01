@@ -105,6 +105,7 @@ int main(int argc, char* argv[])
     std::string password;
     std::string host = "localhost:7001";
     int local_buffer_size = 1;
+    int log_level = 1;
     std::vector<std::string> OEM_name;
     if(argc >= 2)
     {
@@ -148,6 +149,15 @@ int main(int argc, char* argv[])
         local_buffer_size = std::stoi(tmp_buf);
     }
 
+    std::string tmp_log;
+    std::cout << "Enter 0-1 for log level[default is INFO] 0)DEBUG, 1)INFO, 2)ERROR : ";
+    std::getline(std::cin, tmp_log);
+
+    if (!tmp_log.empty())
+    {
+        log_level = std::stoi(tmp_log);
+    }
+
     std::cout << "Enter username: ";
     std::getline(std::cin, username);
 
@@ -173,7 +183,7 @@ int main(int argc, char* argv[])
     root["username"] = username;
     root["password"] = string_to_hex(pwd_str);
     root["local_buffer"] = local_buffer_size;
-    root["licence_key"] = "e1485797-2768-40d7-a80d-2dae5d9befce";
+    root["log_level"] = log_level;
     Json::Value oemArray(Json::arrayValue);
     
     for(int i =0; i < OEM_name.size(); i++)
