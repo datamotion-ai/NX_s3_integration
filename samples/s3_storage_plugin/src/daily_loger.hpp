@@ -28,9 +28,11 @@ namespace nx_spl
                 static std::string m_currentLogFile;
                 static std::mutex  m_mutex;
                 static std::ofstream m_file;
+                static int m_maxLogFiles;
 
             public:
                 static void SetVerbosity(LogPriority new_priority);
+                static void SetMaxLogFileCount(const int logCount);
 
                 template <typename... Args>
                 static void Log(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 

@@ -106,6 +106,7 @@ int main(int argc, char* argv[])
     std::string host = "localhost:7001";
     int local_buffer_size = 1;
     int log_level = 1;
+    int log_max = 3;
     std::vector<std::string> OEM_name;
     if(argc >= 2)
     {
@@ -158,6 +159,15 @@ int main(int argc, char* argv[])
         log_level = std::stoi(tmp_log);
     }
 
+    std::string tmp_max;
+    std::cout << "Enter max log file count[default is 3]: ";
+    std::getline(std::cin, tmp_max);
+
+    if (!tmp_max.empty())
+    {
+        log_max = std::stoi(tmp_max);
+    }
+
     std::cout << "Enter username: ";
     std::getline(std::cin, username);
 
@@ -184,6 +194,7 @@ int main(int argc, char* argv[])
     root["password"] = string_to_hex(pwd_str);
     root["local_buffer"] = local_buffer_size;
     root["log_level"] = log_level;
+    root["log_max"] = log_max;
     Json::Value oemArray(Json::arrayValue);
     
     for(int i =0; i < OEM_name.size(); i++)

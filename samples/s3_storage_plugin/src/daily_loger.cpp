@@ -5,6 +5,7 @@ std::string nx_spl::aux::DailyLogger::m_logDirectory = "./logs";  // Default log
 std::string nx_spl::aux::DailyLogger::m_currentLogFile;
 std::mutex  nx_spl::aux::DailyLogger::m_mutex;
 std::ofstream nx_spl::aux::DailyLogger::m_file;
+int nx_spl::aux::DailyLogger::m_maxLogFiles = 3;
 
 
 void nx_spl::aux::DailyLogger::updateLogFile() 
@@ -63,6 +64,15 @@ void nx_spl::aux::DailyLogger::SetVerbosity(LogPriority new_priority)
     }
 }
 
+void nx_spl::aux::DailyLogger::SetMaxLogFileCount(const int logCount)
+{
+    if((m_maxLogFiles != logCount) && (logCount > 0))
+    {
+        INFOLOG("Log count changed",m_maxLogFiles)
+        m_maxLogFiles = logCount;
+    }
+}
+
 void nx_spl::aux::DailyLogger::Initialize() 
 {
     createLogDirectory();
@@ -78,7 +88,6 @@ void nx_spl::aux::DailyLogger::Dinitialize()
 
 void nx_spl::aux::DailyLogger::deleteOldLogFiles() 
 {
-    int maxLogFiles = 3; // Maximum number of log files to keep
     std::string logFilePrefix = "log_"; 
     std::vector<fs::path> logFiles;
 
@@ -95,7 +104,7 @@ void nx_spl::aux::DailyLogger::deleteOldLogFiles()
         }
     }
 
-    if(logFiles.empty() || (logFiles.size() <= maxLogFiles))
+    if(logFiles.empty() || (logFiles.size() <= m_maxLogFiles))
         return;
 
     std::sort(logFiles.begin(), logFiles.end(), [](const fs::path& a, const fs::path& b) 
@@ -103,7 +112,7 @@ void nx_spl::aux::DailyLogger::deleteOldLogFiles()
         return fs::last_write_time(a) < fs::last_write_time(b);
     });
 
-    while (logFiles.size() > maxLogFiles) 
+    while (logFiles.size() > m_maxLogFiles) 
     {
         fs::remove(logFiles.front());
         logFiles.erase(logFiles.begin());

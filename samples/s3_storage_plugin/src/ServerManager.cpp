@@ -141,6 +141,8 @@ bool ServerManager::loadServerCredential()
             m_password = decrypt_string(nxTemp);
             int log_level = root["log_level"].asInt64();
             nx_spl::aux::DailyLogger::SetVerbosity(nx_spl::aux::DailyLogger::LogPriority(log_level));
+            int log_max = root["log_max"].asInt64();
+            nx_spl::aux::DailyLogger::SetMaxLogFileCount(log_max);
             if(root["OEM"].isArray())
             {
                 Json::Value& oemArray = root["OEM"];
