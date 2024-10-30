@@ -324,6 +324,8 @@ namespace nx_spl
 
         long long getFileSize(const char *fname);
 
+        uintmax_t getFileSize(const fs::directory_entry &entry);
+
         uintmax_t getFolderSize(const fs::path& folder_path); 
 
     }
