@@ -7,7 +7,7 @@ set BASE_DIR_WITH_BACKSLASH=%~dp0
 set BASE_DIR=%BASE_DIR_WITH_BACKSLASH:~0,-1%
 
 @echo off
-%BASE_DIR%/Storage_SDK_License_Config.exe "61e66cbda21b59c53713" "6bc96cb9bb0a54d43615c4" "78f73f8fa50a43801321ffbe" "7ff72785" "6ae729bbeb2c5bcf3104" "7dfb2d869d1a52" "79f7288fa44f74c52a14db92bc"
+%BASE_DIR%/Storage_SDK_License_Config.exe 
 
 set ARTIFACT="license.config"
 if not exist "%ARTIFACT%" (

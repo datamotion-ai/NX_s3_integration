@@ -302,7 +302,6 @@ namespace nx_spl
             {
                 ERRORLOG("Invalid License!!");
                 m_available = false;
-                ServerManager::getInstance()->postEvent("License Expired!!,Update License Details!!","");
                 return 0;
             }
 
@@ -444,7 +443,6 @@ namespace nx_spl
                 if(spaceFullSet == false)
                 {
                         INFOLOG("local folder full:",localFolderSize);
-                        ServerManager::getInstance()->postEvent("No Space Available in Local Storage!!, Recording stoped!!","");
                         spaceFullSet = true;
                 }
                 return 0;
@@ -453,7 +451,6 @@ namespace nx_spl
             if(spaceFullSet)
             {
                 INFOLOG("Server is Back Online:",localFolderSize);
-                ServerManager::getInstance()->postEvent("Recording started!!","");
             }
 
             spaceFullSet = false;

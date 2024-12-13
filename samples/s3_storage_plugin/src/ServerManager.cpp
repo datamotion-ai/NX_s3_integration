@@ -1,7 +1,5 @@
 #include "ServerManager.h"
 #include <curl/curl.h>
-#include <openssl/aes.h>
-#include <openssl/rand.h>
 #include <sstream>
 #include <iomanip>
 #include <ctime>
@@ -43,54 +41,8 @@ bool ServerManager::isServerIntialize() const
     return m_serverInitialize;
 }
 
-void ServerManager::postEvent(std::string msg, std::string source)
-{
-    DEBUGLOG("ServerManager::ServerManager",msg);
-    CURL* curl = curl_easy_init();
-    if (!curl) 
-    {
-        ERRORLOG("Error initializing libcurl.");
-    }
-    else
-    {
-        std::string url = "https://" + m_host +  "/api/createEvent";
-        DEBUGLOG("url",url);
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
-
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
-
-        struct curl_slist* headers = nullptr;
-        headers = curl_slist_append(headers, "accept: application/json");
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-        std::string runtimeGuidHeader = "x-runtime-guid: " + m_token;
-        headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-        std::string data = "{\"source\":\""+ source + "\",\"description\":\"" + msg + "\"}";
-        DEBUGLOG("data",data);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
-
-        std::string response;
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nx_spl::aux::WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-        CURLcode res1 = curl_easy_perform(curl);
-        if (res1 != CURLE_OK) 
-        {
-            ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
-        } 
-        curl_slist_free_all(headers);
-        curl_easy_reset(curl);
-    }
-}
-
 ServerManager::ServerManager():
 m_licenceAvailable(false),
-m_eventActive(false),
 m_serverInitialize(false),
 m_pluginRegistered(false),
 m_local_buffer_size(1)
@@ -130,152 +82,17 @@ bool ServerManager::loadServerCredential()
         else
         {
             m_host = root["host"].asString();
-            m_user = root["username"].asString();
             if(root.isMember("pluginRegistered"))
                 m_pluginRegistered = root["pluginRegistered"].asBool();
             m_local_buffer_size = root["local_buffer"].asInt64();
-            INFOLOG("Local Buffer Size",m_local_buffer_size);
             m_local_buffer_size *= DEFAULT_1_GB ;
             INFOLOG("Local Buffer Size",m_local_buffer_size);
-            std::string nxTemp = root["password"].asString();
-            m_password = decrypt_string(nxTemp);
             int log_level = root["log_level"].asInt64();
             nx_spl::aux::DailyLogger::SetVerbosity(nx_spl::aux::DailyLogger::LogPriority(log_level));
             int log_max = root["log_max"].asInt64();
             nx_spl::aux::DailyLogger::SetMaxLogFileCount(log_max);
-            if(root["OEM"].isArray())
-            {
-                Json::Value& oemArray = root["OEM"];
-                if(oemArray.empty() == false)
-                {
-                    for(int i=0; i< oemArray.size();i++)
-                    {
-                        std::string oem = oemArray[i].asString();
-                        std::string dec_oem = decrypt_string(oem);
-                        INFOLOG("supported OEMs:",dec_oem);
-                        m_OEM.push_back(dec_oem);
-                    }
-                }
-            }
-            ret = !m_host.empty() && !m_user.empty() && !m_password.empty() ;
+            ret = !m_host.empty();
         }
-    }
-    return ret;
-}
-
-bool ServerManager::createSession(const std::string &host, const std::string &usr, const std::string &pswd, std::string &token) const
-{
-    DEBUGLOG("ServerManager::createSession",host,usr,pswd);
-    bool ret = false;
-    CURL* curl = curl_easy_init();
-    if (!curl) 
-    {
-        ERRORLOG("Error initializing libcurl.");
-    }
-    else
-    {
-        std::string url = "https://" + host +  "/rest/v2/login/sessions";
-        DEBUGLOG("url",url);
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_POST, 1L);
-
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
-
-        struct curl_slist* headers = nullptr;
-        headers = curl_slist_append(headers, "accept: application/json");
-        headers = curl_slist_append(headers, "Content-Type: application/json");
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-        std::string data = "{\"username\":\""+ usr + "\",\"password\":\"" + pswd + "\",\"setCookie\":true}";
-        DEBUGLOG("data",data);
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, data.c_str());
-
-        std::string response;
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nx_spl::aux::WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-        CURLcode res1 = curl_easy_perform(curl);
-        if (res1 != CURLE_OK) 
-        {
-            ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
-        } 
-        else 
-        {
-            INFOLOG("------->",response);
-            Json::Value root;
-            Json::Reader reader;
-            if(reader.parse(response, root) && (root.isMember("token")))
-            {
-                token = root["token"].asString();
-                ret = true;
-            }
-            else
-            {
-                ERRORLOG("Invalid json resopense",response);
-            }
-            
-        }
-        curl_slist_free_all(headers);
-        curl_easy_reset(curl);
-    }
-    return ret;
-}
-
-bool ServerManager::isSessionExpired(const std::string &host, std::string &token) const
-{
-    DEBUGLOG("S3StorageFactory::isSessionExpired",host,token);
-    bool ret = true;
-    CURL* curl = curl_easy_init();
-    if (!curl) 
-    {
-        ERRORLOG("Error initializing libcurl.");
-    }
-    else
-    {
-        std::string url = "https://" + host +  "/rest/v2/login/sessions/" + token;
-        DEBUGLOG("url",url);
-        curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
-
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0L);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, 0L);
-
-        curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 1L); 
-
-        struct curl_slist* headers = nullptr;
-        headers = curl_slist_append(headers, "accept: application/json");
-        std::string runtimeGuidHeader = "x-runtime-guid: " + token;
-        headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
-
-        std::string response;
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, nx_spl::aux::WriteCallback);
-        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response);
-
-        CURLcode res1 = curl_easy_perform(curl);
-        if (res1 != CURLE_OK) {
-            ERRORLOG("curl_easy_perform() failed: ",curl_easy_strerror(res1));
-        } else {
-            INFOLOG("------->",response);
-            Json::Value root;
-            Json::Reader reader;
-            if(reader.parse(response, root))
-            {
-                std::string tokenExpiration = root["expiresInS"].asString();
-                if(!tokenExpiration.empty())
-                    ret = false;
-            }
-            else
-            {
-                ERRORLOG("Invalid json resopense",response);
-            }
-            
-        }
-        curl_slist_free_all(headers);
-        curl_easy_reset(curl);
     }
     return ret;
 }
@@ -292,16 +109,14 @@ bool ServerManager::verifyLicense()
     }
     else
     {
-        std::string url = "https://" + m_host + "/rest/v2/licenses";
+        std::string url = "https://" + m_host + "/rest/v3/system/info";
         std::string acceptHeader = "accept: application/json";
-        std::string runtimeGuidHeader = "x-runtime-guid: " + m_token;
         
         curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "GET");
 
         struct curl_slist* headers = NULL;
         headers = curl_slist_append(headers, acceptHeader.c_str());
-        headers = curl_slist_append(headers, runtimeGuidHeader.c_str());
         curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers);
 
         std::string response;
@@ -329,160 +144,33 @@ bool ServerManager::verifyLicense()
             INFOLOG("------->",headerResponse);
             m_serverOEM = headerResponse;
             m_serverOEM.erase(std::remove(m_serverOEM.begin(), m_serverOEM.end(), '\n'), m_serverOEM.end());
-            if(verifyOEM(m_serverOEM))
+            Json::Value jsonData;
+            Json::CharReaderBuilder jsonReaderBuilder;
+            std::istringstream jsonStream(response);
+            bool validJson = Json::parseFromStream(jsonReaderBuilder, jsonStream, &jsonData, nullptr);
+
+            if(validJson)
             {
-                Json::Value jsonData;
-                Json::CharReaderBuilder jsonReaderBuilder;
-                std::istringstream jsonStream(response);
-                bool validJson = Json::parseFromStream(jsonReaderBuilder, jsonStream, &jsonData, nullptr);
-
-                if(validJson && jsonData.isArray())
+                if (jsonData.isMember("organizationId")) 
                 {
-                    for (const auto& jsonObject : jsonData) 
-                    {
-                        if(jsonObject.isMember("licenseBlock"))
-                        {
-                            std::istringstream iss(jsonObject["licenseBlock"].asString());
-                            std::vector<std::string> lines;
-                            std::string line;
-
-                            while (std::getline(iss, line, '\n')) 
-                            {
-                                lines.push_back(line);
-                            }
-
-                            Json::Value licenseObject;
-                            
-                            for (const auto& line : lines) 
-                            {
-                                size_t equalPos = line.find('=');
-                                if (equalPos != std::string::npos) 
-                                {
-                                    std::string key = line.substr(0, equalPos);
-                                    std::string value = line.substr(equalPos + 1);
-                                    licenseObject[key] = value;
-                                }
-                            }
-
-                            if (licenseObject.isMember("EXPIRATION")) 
-                            {
-                                std::string expirationValue = licenseObject["EXPIRATION"].asString();
-                                INFOLOG("---EXPIRATION---->",expirationValue);
-                                std::time_t rawTime;
-                                std::tm* timeInfo;
-                                char buffer[80];
-
-                                std::time(&rawTime);
-                                timeInfo = std::localtime(&rawTime);
-
-                                std::strftime(buffer, sizeof(buffer), "%Y-%m-%d %H:%M:%S", timeInfo);
-                                std::string timestamp(buffer);
-
-                                if(timestamp <= expirationValue)
-                                {
-                                    INFOLOG("***Valid license***");
-                                    licenseAvailable = true;
-                                    break;
-                                }
-                                else
-                                {
-                                    INFOLOG("Invalid license");
-                                    licenseAvailable = false;
-                                }
-                            } 
-                            else 
-                            {
-                                ERRORLOG("Key 'EXPIRATION' not found in the JSON object");
-                                licenseAvailable = false;
-                            }
-                        }
-                    }
-                }
-                else
+                    INFOLOG("***Valid license***");
+                    licenseAvailable = true;
+                } 
+                else 
                 {
-                    ERRORLOG("Invalid Json response",response);
+                    ERRORLOG("Key 'organizationId' not found in the JSON object");
+                    licenseAvailable = false;
                 }
             }
             else
             {
-                ERRORLOG("Oops!!, Invalid Server!!",headerResponse);
+                ERRORLOG("Invalid Json response",response);
             }
         }
         curl_slist_free_all(headers);
         curl_easy_reset(curl);
     }
     return licenseAvailable;
-}
-
-std::string ServerManager::hex_to_string(const std::string hex_input)
-{
-    std::string output;
-    for (size_t i = 0; i < hex_input.length(); i += 2) 
-    {
-        std::string byte = hex_input.substr(i, 2);
-        char chr = (char)(int)strtol(byte.c_str(), nullptr, 16);
-        output.push_back(chr);
-    }
-    return output;
-}
-
-std::string ServerManager::decrypt_string(const std::string input)
-{
-    std::string str_value = hex_to_string(input);
-
-    unsigned char ckey[16] = "*&^%$#@!$%^&#*^";
-    const char ivecstr[AES_BLOCK_SIZE] = "NXStorageSDK\0";
-
-    unsigned char ivec_enc[AES_BLOCK_SIZE];
-    memcpy(ivec_enc, ivecstr, AES_BLOCK_SIZE);
-
-    /* data structure that contains the key itself */
-    AES_KEY keyEn;
-
-    unsigned char enc[AES_BLOCK_SIZE];
-    memset(enc, '\0', AES_BLOCK_SIZE);
-
-
-    /* set the encryption key */
-    AES_set_encrypt_key(ckey, 128, &keyEn);
-
-    /* set where on the 128 bit encrypted block to begin encryption*/
-    int num = 0;
-    int plaintext_len = str_value.size();
-
-    AES_cfb128_encrypt(reinterpret_cast<const unsigned char*>(str_value.c_str()), enc, plaintext_len, &keyEn, ivec_enc, &num, AES_DECRYPT);
-
-    std::string decrypted_str(reinterpret_cast<char*>(enc), std::strlen(reinterpret_cast<char*>(enc)));
-
-    return decrypted_str;
-}
-
-bool ServerManager::verifyOEM(const std::string headerResponse)
-{
-    DEBUGLOG("ServerManager::verifyOEM",headerResponse);
-    bool validOEM = false;
-    if(m_OEM.empty() == true)
-    {
-        validOEM = true;
-    }
-    else
-    {
-        for(int i= 0; i < m_OEM.size(); i++)
-        {
-            if(headerResponse.find(m_OEM[i]) != std::string::npos)
-            {
-                validOEM = true;
-                break;
-            }
-        }
-    }
-    return validOEM;
-}
-
-bool ServerManager::registerSDK()
-{
-
-    return false;
 }
 
 std::string ServerManager::getLicenseKey()
@@ -695,36 +383,17 @@ void ServerManager::updateLicenseDetail()
     m_serverInitialize = true;
     if(loadServerCredential())
     {
-        if(m_token.empty() || isSessionExpired(m_host, m_token))
+        if(verifyLicense())
         {
-            m_token.clear();
-            if(!createSession(m_host,m_user,m_password,m_token))
-            {
-                ERRORLOG("Failed to create session!!");
-                m_licenceAvailable = false;
-                m_timer.setInterval(ONE_MINUTE);
-                return;
-            }
-        }
-        if(!m_token.empty())
-        {
-            if(verifyLicense())
-            {
-                m_licenceAvailable = true;
-                m_timer.setInterval(TEN_MINUTE);
-            }
-            else
-            {
-                m_licenceAvailable = false;
-                m_timer.setInterval(ONE_MINUTE);
-                ServerManager::getInstance()->postEvent("License Expired!!,Update License Details!!","");
-            }
-            if(m_pluginRegistered == false)
-                registerPlugin();
+            m_licenceAvailable = true;
+            m_timer.setInterval(TEN_MINUTE);
         }
         else
         {
-            ERRORLOG("Token is Empty!!");
+            m_licenceAvailable = false;
+            m_timer.setInterval(ONE_MINUTE);
         }
+        if(m_pluginRegistered == false)
+            registerPlugin();
     }
 }

@@ -88,8 +88,7 @@ bool s3Client::establishS3Connection()
             }
             else
             {
-                ERRORLOG("Failed to list bucket lists!! connection failed!!");
-                ServerManager::getInstance()->postEvent(outcome.GetError().GetMessage(),m_url + "/" + m_bucket);
+                ERRORLOG("Failed to list bucket lists!! connection failed!!",outcome.GetError().GetMessage(),m_url + "/" + m_bucket);
             }
 
             if(!ServerManager::getInstance()->isServerIntialize())
@@ -860,7 +859,6 @@ bool s3Client::createBucket()
             if (!outcome.IsSuccess()) 
             {
                 ERRORLOG("Failed to create bucket",m_bucket,outcome.GetError().GetMessage());
-                ServerManager::getInstance()->postEvent(outcome.GetError().GetMessage(),m_url + "/" + m_bucket);
             }
             else 
             {
@@ -986,8 +984,7 @@ void s3Client::keepAliveActivator()
             Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
             if (!outcome.IsSuccess()) 
             {
-                ERRORLOG("Unable to upload file:",SYNC_FILE,outcome.GetError().GetMessage().c_str());
-                ServerManager::getInstance()->postEvent(outcome.GetError().GetMessage() + "\n Local Storage Enabled!!",m_url + "/" + m_bucket);
+                ERRORLOG("Unable to upload file:",SYNC_FILE,outcome.GetError().GetMessage().c_str(),m_url + "/" + m_bucket);
                 m_storageAvailable = false;
             }
             else 
