@@ -3,8 +3,47 @@
 
 echo "Settingup sdk .."
 
-copy ".\lib\*" "C:\Program Files\Network Optix\Nx Witness\MediaServer\"
-copy ".\license.config" "C:\Program Files\Network Optix\Nx Witness\MediaServer\"
-copy ".\s3_storage_plugin.dll" "C:\Program Files\Network Optix\Nx Witness\MediaServer\plugins\"
+set BASE_DIR_WITH_BACKSLASH=%~dp0
+set BASE_DIR=%BASE_DIR_WITH_BACKSLASH:~0,-1%
 
-echo "Settingup sdk ..Done"
+@echo off
+%BASE_DIR%/Storage_SDK_License_Config.exe "61e66cbda21b59c53713" "6bc96cb9bb0a54d43615c4" "78f73f8fa50a43801321ffbe" "7ff72785" "6ae729bbeb2c5bcf3104" "7dfb2d869d1a52" "79f7288fa44f74c52a14db92bc"
+
+set ARTIFACT="license.config"
+if not exist "%ARTIFACT%" (
+    echo ERROR: Failed to find %ARTIFACT%.
+    exit /b 70
+)
+
+echo "Select MediaServer installation folder!!"
+
+@echo off
+setlocal
+
+:: Use PowerShell to open a folder browser dialog
+set "psCommand="(new-object -COM 'Shell.Application')^
+.BrowseForFolder(0,'Please choose a folder.',0,0).self.path""
+for /f "usebackq delims=" %%I in (`powershell %psCommand%`) do set "folder=%%I"
+echo You selected: %folder%
+
+:: Check if the user selected a folder
+if "%folder%"=="" (
+    echo ERROR:"No folder was selected."
+) else (
+
+    if exist "%folder%\" (
+
+        copy %BASE_DIR%"\lib\*" "%folder%\"
+        copy ".\license.config" "%folder%\"
+        copy %BASE_DIR%"\s3.config" "%folder%\"
+        copy %BASE_DIR%"\s3_storage_plugin.dll" "%folder%\plugins\"
+
+        echo "Settingup sdk ..Done"
+
+    ) else (
+        echo ERROR:"folder not exist"
+    )
+)
+
+endlocal
+pause

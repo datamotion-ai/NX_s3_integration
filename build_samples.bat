@@ -49,16 +49,19 @@ exit /b
         mkdir "%SAMPLE_BUILD_DIR%" || @exit /b
         cd "%SAMPLE_BUILD_DIR%" || @exit /b
         
-        cmake "%SOURCE_DIR%\src" -DCMAKE_TOOLCHAIN_FILE=E:/vcpkg-master/scripts/buildsystems/vcpkg.cmake -DCURL_STATICLIB=1 -DUSE_IMPORT_EXPORT=1 -DUSE_WINDOWS_DLL_SEMANTIC=1 -Ax64 %1 %2 %3 %4 %5 %6 %7 %8 %9 || @exit /b
+        cmake "%SOURCE_DIR%\src" -DCMAKE_TOOLCHAIN_FILE=D:/Datamotion/Plugins/develop/NX_s3_integration/lib/vcpkg-master/scripts/buildsystems/vcpkg.cmake -DCURL_STATICLIB=1 -DUSE_IMPORT_EXPORT=1 -DUSE_WINDOWS_DLL_SEMANTIC=1 -Ax64 %1 %2 %3 %4 %5 %6 %7 %8 %9 || @exit /b
         cmake --build . %BUILD_OPTIONS% || @exit /b
     @echo off
-    set ARTIFACT=%SAMPLE_BUILD_DIR%\%BUILD_TYPE%\%SAMPLE%.dll
-    if not exist "%ARTIFACT%" (
-        echo ERROR: Failed to build plugin %SAMPLE%.
-        exit /b 70
+    set ARTIFACT1=%SAMPLE_BUILD_DIR%\%BUILD_TYPE%\%SAMPLE%.dll
+    set ARTIFACT2=%SAMPLE_BUILD_DIR%\%BUILD_TYPE%\%SAMPLE%.exe
+    if not exist "%ARTIFACT1%" (
+        if not exist "%ARTIFACT2%" (
+            echo ERROR: Failed to build plugin %SAMPLE%.
+            exit /b 70
+        )
     )
     echo:
-    echo Plugin built: %ARTIFACT%
+    echo Plugin built: %ARTIFACT1%
 exit /b
 
 :error

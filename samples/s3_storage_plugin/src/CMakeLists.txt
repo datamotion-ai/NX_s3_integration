@@ -16,14 +16,9 @@ set(CMAKE_CXX_STANDARD 20)
 # Use the MSVC variable to determine if this is a Windows build.
 set(WINDOWS_BUILD ${MSVC})
 
-
-if(WINDOWS_BUILD)
-    string(REPLACE ";" "/aws-cpp-sdk-all;" SYSTEM_MODULE_PATH "${CMAKE_SYSTEM_PREFIX_PATH}/aws-cpp-sdk-all")
-    list(APPEND CMAKE_PREFIX_PATH ${SYSTEM_MODULE_PATH})
-endif()
-
 find_package(AWSSDK REQUIRED COMPONENTS ${SERVICE_COMPONENTS})
 find_package(CURL REQUIRED)
+find_package(OpenSSL REQUIRED)
 if(NOT WIN32)
    find_package(ZLIB REQUIRED)
 endif()
@@ -86,8 +81,9 @@ if(WINDOWS_BUILD)
     target_link_libraries(s3_storage_plugin PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/jsoncpp/build/lib/Release/jsoncpp_static.lib
         ${AWSSDK_LINK_LIBRARIES}
-        #${AWSSDK_PLATFORM_DEPS}
-        CURL::libcurl)
+        CURL::libcurl
+        OpenSSL::SSL 
+        OpenSSL::Crypto)
 else()
     target_link_libraries(s3_storage_plugin PRIVATE 
    	${AWSSDK_LINK_LIBRARIES} 

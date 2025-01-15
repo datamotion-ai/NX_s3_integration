@@ -3,6 +3,46 @@
 This is a dynamic library that implements remote storage functionality with an S3 server as a
 backend, as a Storage Plugin for the VMS Server, built using Storage SDK.
 
+Version beta 1.0.5
+------------------------------------
+added secquared server access authentication.
+
+Note: before installing plugin makesure the mediaserver is stop
+
+steps to install application:
+
+Windows: 
+1. select install.bat file
+2. right click and run install.bat file as administration
+3. insert host name and port
+4. insert server user id
+5. insert server password
+6. select your OEM Mediaserver folder
+7. this will install plugin
+8. start media server
+
+Linux:
+1. open terminal as administrator
+2. excecute command sh install.sh
+3. insert host name and port
+4. insert server user id
+5. insert server password
+6. select your OEM Mediaserver folder
+7. this will install plugin
+8. start media server 
+
+Version beta 1.0.4
+------------------------------------
+issue: playback and recording is slower
+Fix:
+1. updated file upload operation in BG to make process faster
+2. restricted local storage to 1GB
+3. updated bucket size calculation operation in BG
+4. updated user agent to Wasabi/1.0 <VMS app> <OS> /<version number>
+5. added s3.config to update storage size
+6. locked plugin to work only with Network Optix
+
+
 Version beta 1.0.3
 ------------------------------------
 issue: playback and recording is slower for camera more then 4. resolved issue and made operation faster

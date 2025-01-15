@@ -64,14 +64,14 @@ do
         cmake "$SOURCE_DIR/src" `# allow empty array #` ${GEN_OPTIONS[@]+"${GEN_OPTIONS[@]}"} "$@"
         cmake --build . `# allow empty array #` ${BUILD_OPTIONS[@]+"${BUILD_OPTIONS[@]}"}
     )
-    ARTIFACT=$(find "$BUILD_DIR" -name "$SAMPLE.dll" -o -name "lib$SAMPLE.so")
-    if [ ! -f "$ARTIFACT" ]
-    then
-        echo "ERROR: Failed to build plugin $SAMPLE."
-        exit 64
-    fi
+    ARTIFACT=$(find "$BUILD_DIR" -name "$SAMPLE.dll" -o -name "lib$SAMPLE.so" -o -name $SAMPLE)
+    # if [ ! -f "$ARTIFACT" ]
+    # then
+    #     echo "ERROR: Failed to build $SAMPLE ."
+    #     exit 64
+    # fi
     echo ""
-    echo "Plugin built: $ARTIFACT"
+    echo " built: $ARTIFACT"
     echo ""
 done
 

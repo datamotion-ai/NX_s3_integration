@@ -1,23 +1,11 @@
-#pragma once
+#ifndef _DAILY_LOGGER_H_
+#define _DAILY_LOGGER_H_
 
-#include <vector>
-#include <string>
-#include <memory>
-#include <stdexcept>
-#include <stdint.h>
-#include <mutex>
-#include <fstream>
-#include <ctime>
-#include <sstream>
-#include <filesystem>
-#include <iostream>
-#include <mutex>
+#include "common.hpp"
 
-namespace fs = std::filesystem;
-
-#define DEBUGLOG(...) ""
+// #define DEBUGLOG(...) ""
 //#define INFOLOG(...) ""
-//#define DEBUGLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::DebugP, __FUNCTION__, __LINE__, __VA_ARGS__);
+#define DEBUGLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::DebugP, __FUNCTION__, __LINE__, __VA_ARGS__);
 #define INFOLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::InfoP, __FUNCTION__, __LINE__, __VA_ARGS__);
 #define ERRORLOG(...) nx_spl::aux::DailyLogger::Log(nx_spl::aux::DailyLogger::LogPriority::ErrorP, __FUNCTION__, __LINE__, __VA_ARGS__);
 
@@ -31,7 +19,7 @@ namespace nx_spl
             public:
                 enum LogPriority 
                 {
-                    DebugP, InfoP, WarnP, ErrorP, CriticalP, FatalP
+                    DebugP = 0, InfoP, ErrorP
                 };
 
             private:
@@ -40,26 +28,30 @@ namespace nx_spl
                 static std::string m_currentLogFile;
                 static std::mutex  m_mutex;
                 static std::ofstream m_file;
+                static int m_maxLogFiles;
 
             public:
                 static void SetVerbosity(LogPriority new_priority);
+                static void SetMaxLogFileCount(const int logCount);
 
                 template <typename... Args>
                 static void Log(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 
                 {
-                    std::lock_guard<std::mutex> lock(m_mutex);
-                    if (m_file.is_open())
+                    if ((priority < m_verbosity) || m_currentLogFile.empty())
                     {
-                        if (priority >= m_verbosity) 
+                        return;
+                    } 
+                    else
+                    {
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        m_file.open(m_currentLogFile,std::ios_base::app);
+                        if (m_file.is_open())
                         {
                             switch (priority) 
                             {
                                 case DebugP: m_file << "Debug:\t"; break;
                                 case InfoP: m_file << "Info:\t"; break;
-                                case WarnP: m_file << "Warn:\t"; break;
                                 case ErrorP: m_file << "Error:\t"; break;
-                                case CriticalP: m_file << "Critical:\t"; break;
-                                case FatalP: m_file << "Fatal:\t"; break;
                             }
 
                             // Get current timestamp
@@ -81,12 +73,17 @@ namespace nx_spl
                             m_file.close();
                             updateLogFile();
                         }
-                    }
+                    }  
+                    
                 }
 
                 static void Initialize();
 
                 static void Dinitialize();
+
+                static void deleteOldLogFiles();
+
+                static std::string generateRotatedLogFileName(const std::string &logFilePath);
 
             private:
                 static void updateLogFile();
@@ -106,3 +103,5 @@ namespace nx_spl
         };
     }
 }
+
+#endif //_DAILY_LOGGER_H_
