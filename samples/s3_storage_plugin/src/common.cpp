@@ -164,15 +164,36 @@ namespace nx_spl
         uintmax_t getFolderSize(const fs::path &folder_path)
         {
             uintmax_t size = 0;
-            for (const auto& entry : fs::recursive_directory_iterator(folder_path)) 
-            {
-                if (fs::is_regular_file(entry)) 
-                {
-                    size += fs::file_size(entry);
+            try{
+                for (const auto& entry : fs::recursive_directory_iterator(folder_path)) 
+                {                
+                    size += getFileSize(entry);                
                 }
+            }catch (const std::exception &ex) {
+                ERRORLOG("DMError: Exception in getFolderSize ", ex.what());
+                throw;
             }
             DEBUGLOG("getFolderSize",size);
             return size;
+        }
+
+        uintmax_t getFileSize(const fs::directory_entry &entry) 
+        {
+            try {
+
+                if (fs::is_regular_file(entry)) 
+                {
+                    return fs::file_size(entry);
+                }
+
+            } catch (const fs::filesystem_error &fs_err) {  
+                ERRORLOG("DMError: Filesystem error in getFileSize ", fs_err.what());
+            } catch (const std::exception &ex) {
+                ERRORLOG("DMError: Exception in getFileSize ", ex.what());
+            } catch (...) {
+                ERRORLOG("DMError: Unknown error in getFileSize while accessing file size.");
+            }
+            return 0; // Return 0 if there was an error
         }
     }
 }
