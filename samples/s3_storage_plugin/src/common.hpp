@@ -42,7 +42,7 @@
 #include "daily_loger.hpp"
 
 
-#define VERSION "beta-1.0.4"
+#define VERSION "beta-1.0.5"
 
 #ifdef _MSC_VER
 #   define NOEXCEPT
@@ -323,6 +323,8 @@ namespace nx_spl
         void dirFromUri(const std::string   &uri, std::string *dir,  std::string *file);
 
         long long getFileSize(const char *fname);
+
+        uintmax_t getFileSize(const fs::directory_entry &entry);
 
         uintmax_t getFolderSize(const fs::path& folder_path); 
 

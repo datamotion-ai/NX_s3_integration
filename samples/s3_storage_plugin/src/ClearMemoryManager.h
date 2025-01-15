@@ -11,16 +11,23 @@ class ClearMemoryManager
     static void deleteInstance();
     void addFileToRemoveList(std::string strFile);
     void deleteFileFromRemoveList(std::string strFile);
+    void addFileToWriteList(std::string strFile);
+    void deleteFileFromWriteList(std::string strFile);
 
     private:
     ClearMemoryManager();
     ~ClearMemoryManager();
     void clearMemory();
+    void freeTempStorage();
+    void loadJsonFile(std::string filename);
 
     private:
+    bool m_folderCleaned;
     static ClearMemoryManager* m_clManagerPtr;
     std::vector<std::string> m_removeFileList;
+    std::vector<std::string> m_writeFileList;
     std::mutex  m_mutex;
+    std::vector<std::string> m_uploadingFiles;
     Timer       m_timer;
 };
 

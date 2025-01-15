@@ -66,20 +66,28 @@ namespace nx_spl
         // set error code to initial state (NoError generally if storage is available)
         error::code_t checkECode(int *checked, const bool avail, error::code_t toSet)
         {
-            if (checked)
-                *checked = error::NoError;
-
-            if (!avail)
+            try
             {
                 if (checked)
-                    *checked = error::StorageUnavailable;
-                return error::StorageUnavailable;
+                    *checked = error::NoError;
+
+                if (!avail)
+                {
+                    if (checked)
+                        *checked = error::StorageUnavailable;
+                    return error::StorageUnavailable;
+                }
+
+                else if (checked)
+                    *checked = toSet;
+
+                return (error::code_t)*checked;
             }
-
-            else if (checked)
-                *checked = toSet;
-
-            return (error::code_t)*checked;
+            catch(const std::exception& e)
+            {
+                ERRORLOG("Error:",e.what());
+                return error::code_t::UnknownError;
+            }
         }
 
         size_t WriteCallback(void* contents, size_t size, size_t nmemb, std::string* output) 
@@ -156,14 +164,36 @@ namespace nx_spl
         uintmax_t getFolderSize(const fs::path &folder_path)
         {
             uintmax_t size = 0;
-            for (const auto& entry : fs::recursive_directory_iterator(folder_path)) 
-            {
+            try{
+                for (const auto& entry : fs::recursive_directory_iterator(folder_path)) 
+                {                
+                    size += getFileSize(entry);                
+                }
+            }catch (const std::exception &ex) {
+                ERRORLOG("DMError: Exception in getFolderSize ", ex.what());
+                throw;
+            }
+            DEBUGLOG("getFolderSize",size);
+            return size;
+        }
+
+        uintmax_t getFileSize(const fs::directory_entry &entry) 
+        {
+            try {
+
                 if (fs::is_regular_file(entry)) 
                 {
-                    size += fs::file_size(entry);
+                    return fs::file_size(entry);
                 }
+
+            } catch (const fs::filesystem_error &fs_err) {  
+                ERRORLOG("DMError: Filesystem error in getFileSize ", fs_err.what());
+            } catch (const std::exception &ex) {
+                ERRORLOG("DMError: Exception in getFileSize ", ex.what());
+            } catch (...) {
+                ERRORLOG("DMError: Unknown error in getFileSize while accessing file size.");
             }
-            return size;
+            return 0; // Return 0 if there was an error
         }
     }
 }
