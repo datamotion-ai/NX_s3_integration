@@ -29,6 +29,7 @@
 #include "daily_loger.hpp"
 #include "common.hpp"
 #include "timer.h"
+#include "ThreadPool.h"
 
 typedef std::shared_ptr<Aws::S3::S3Client> s3PtrType;
 
@@ -60,7 +61,7 @@ class s3Client
     void fileUploadThread();
     void keepAliveActivator();
     void updateRemoteFolderSize();
-    std::string getNextFileToUpload();
+    std::vector<std::string> getNextFileToUpload();
     void removeFileFromUploadList(std::string file);
 
     private:
@@ -81,7 +82,9 @@ class s3Client
     std::vector<std::string> m_fileToUpload;
     std::thread uploadThread;
     std::thread spaceThread;
+    ThreadPool  m_threadPool;
     Timer       m_keepAliveTimer;
+    std::vector<std::string> m_workfiles;
 };
 
 #endif //S3_CLIENT_H

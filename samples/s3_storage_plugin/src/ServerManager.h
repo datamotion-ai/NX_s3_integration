@@ -13,6 +13,7 @@ class ServerManager
     bool isServerIntialize() const;
     void postEvent(std::string msg, std::string source);
     int64_t getLocalBufferSize();
+    int getMaxThread();
 
     private:
     ServerManager();
@@ -35,6 +36,7 @@ class ServerManager
     bool m_serverInitialize;
     bool m_eventActive;
     bool m_pluginRegistered;
+    int  m_maxThread;
     std::string m_host;
     std::string m_user;
     std::string m_password;
