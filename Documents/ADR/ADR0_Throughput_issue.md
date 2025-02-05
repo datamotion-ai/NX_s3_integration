@@ -4,6 +4,9 @@ Currently, the file is written into the local system and another thread uploads 
 
 **Current implementation:**
 
+![image](https://github.com/user-attachments/assets/30711e94-cd85-4cfa-ac10-6be45a534e6b)
+
+
 The s3IODevice class writes the recording into a file stored into local “C:\Windows\Temp\Nx Witness” folder. It also added file path into json file having all files need to be uploaded into the s3 server.
 
 The s3Client class has thread function named “s3Client::fileUploadThread()” which get the filename by reading the json file from function s3Client::getNextFileToUpload(), need to be uploaded into s3, sequentially and read that file data and upload that into the s3 server.
@@ -13,6 +16,9 @@ The s3Client class has thread function named “s3Client::fileUploadThread()” 
 As the file is uploaded sequentially, when there is more number of camera for ex. 51 cameras, this will create 51 files recording into local system/ minutes. Makes all 51 recording to be uploaded into s3 server immediately. But due to the sequential upload functionality, it creates a huge pile of about 3000 files to be uploaded after some time causing the throughput issue.
 
 **Solution:**
+
+![image](https://github.com/user-attachments/assets/023113e9-951d-4065-992e-3608a73edf63)
+
 
 1. **Thread pool**
 
@@ -29,7 +35,11 @@ As the file is uploaded sequentially, when there is more number of camera for ex
 
    Notify the user on network optics that the storage is overloaded. For example, when storage exceeds 200 files notify the user once. For 400 files notify the user every minute. For 600 files notify the user every second.
 
-   This makes the user aware that the network which the user is operating is not working smoothly for uploading the files. 
+   This makes the user aware that the network which the user is operating is not working smoothly for uploading the files.
+
+   200 files massage: level 1 queue transfer warrning "Internal buffer reached level 1 warning, please check throughput configuration"
+   400 files massage: level 2 queue transfer warrning "Internal buffer reached level 2 warning, please check throughput configuration"
+   600 files massage: level 3 queue transfer warrning "Internal buffer reached level 3 warning, please check throughput configuration"
 
 **Future Scope:**
 
