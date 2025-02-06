@@ -45,7 +45,8 @@ ServerManager::ServerManager():
 m_licenceAvailable(false),
 m_serverInitialize(false),
 m_pluginRegistered(false),
-m_local_buffer_size(1)
+m_local_buffer_size(1),
+m_maxThread(10)
 {
     DEBUGLOG("ServerManager::ServerManager");
 }
@@ -81,16 +82,25 @@ bool ServerManager::loadServerCredential()
         }
         else
         {
-            m_host = root["host"].asString();
+            if(root.isMember("host"))
+                m_host = root["host"].asString();
             if(root.isMember("pluginRegistered"))
                 m_pluginRegistered = root["pluginRegistered"].asBool();
-            m_local_buffer_size = root["local_buffer"].asInt64();
-            m_local_buffer_size *= DEFAULT_1_GB ;
+            if(root.isMember("local_buffer")){
+                m_local_buffer_size = root["local_buffer"].asInt64();
+                m_local_buffer_size *= DEFAULT_1_GB ;
+            }
             INFOLOG("Local Buffer Size",m_local_buffer_size);
-            int log_level = root["log_level"].asInt64();
-            nx_spl::aux::DailyLogger::SetVerbosity(nx_spl::aux::DailyLogger::LogPriority(log_level));
-            int log_max = root["log_max"].asInt64();
-            nx_spl::aux::DailyLogger::SetMaxLogFileCount(log_max);
+            if(root.isMember("max_parallel_upload")) {
+                int log_level = root["log_level"].asInt64();
+                nx_spl::aux::DailyLogger::SetVerbosity(nx_spl::aux::DailyLogger::LogPriority(log_level));
+            }
+            if(root.isMember("log_max")) {
+                int log_max = root["log_max"].asInt64();
+                nx_spl::aux::DailyLogger::SetMaxLogFileCount(log_max);
+            }
+            if(root.isMember("max_parallel_upload"))
+                m_maxThread =  root["max_parallel_upload"].asUInt();
             ret = !m_host.empty();
         }
     }
@@ -375,6 +385,12 @@ int64_t ServerManager::getLocalBufferSize()
 {
     DEBUGLOG("ServerManager::getLocalBufferSize");
     return m_local_buffer_size;
+}
+
+int ServerManager::getMaxThread()
+{
+    DEBUGLOG("ServerManager::getMaxThread");
+    return m_maxThread;
 }
 
 void ServerManager::updateLicenseDetail()
