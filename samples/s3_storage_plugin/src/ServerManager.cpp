@@ -93,7 +93,8 @@ m_licenceAvailable(false),
 m_eventActive(false),
 m_serverInitialize(false),
 m_pluginRegistered(false),
-m_local_buffer_size(1)
+m_local_buffer_size(1),
+m_maxThread(10)
 {
     DEBUGLOG("ServerManager::ServerManager");
 }
@@ -129,20 +130,31 @@ bool ServerManager::loadServerCredential()
         }
         else
         {
-            m_host = root["host"].asString();
-            m_user = root["username"].asString();
+            if(root.isMember("host"))
+                m_host = root["host"].asString();
+            if(root.isMember("username"))
+                m_user = root["username"].asString();
             if(root.isMember("pluginRegistered"))
                 m_pluginRegistered = root["pluginRegistered"].asBool();
-            m_local_buffer_size = root["local_buffer"].asInt64();
+            if(root.isMember("local_buffer"))
+                m_local_buffer_size = root["local_buffer"].asInt64();
             INFOLOG("Local Buffer Size",m_local_buffer_size);
             m_local_buffer_size *= DEFAULT_1_GB ;
             INFOLOG("Local Buffer Size",m_local_buffer_size);
-            std::string nxTemp = root["password"].asString();
-            m_password = decrypt_string(nxTemp);
-            int log_level = root["log_level"].asInt64();
-            nx_spl::aux::DailyLogger::SetVerbosity(nx_spl::aux::DailyLogger::LogPriority(log_level));
-            int log_max = root["log_max"].asInt64();
-            nx_spl::aux::DailyLogger::SetMaxLogFileCount(log_max);
+            if(root.isMember("password")) {
+                std::string nxTemp = root["password"].asString();
+                m_password = decrypt_string(nxTemp);
+            }
+            if(root.isMember("log_level")) {
+                int log_level = root["log_level"].asInt64();
+                nx_spl::aux::DailyLogger::SetVerbosity(nx_spl::aux::DailyLogger::LogPriority(log_level));
+            }
+            if(root.isMember("log_max")) {
+                int log_max = root["log_max"].asInt64();
+                nx_spl::aux::DailyLogger::SetMaxLogFileCount(log_max);
+            }
+            if(root.isMember("max_parallel_upload"))
+                m_maxThread =  root["max_parallel_upload"].asUInt();
             if(root["OEM"].isArray())
             {
                 Json::Value& oemArray = root["OEM"];
@@ -681,6 +693,12 @@ void ServerManager::registerPlugin()
             curl_easy_reset(curl);
         }
     }
+}
+
+int ServerManager::getMaxThread()
+{
+    DEBUGLOG("ServerManager::getMaxThread");
+    return m_maxThread;
 }
 
 int64_t ServerManager::getLocalBufferSize()

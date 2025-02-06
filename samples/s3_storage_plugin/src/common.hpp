@@ -42,7 +42,7 @@
 #include "daily_loger.hpp"
 
 
-#define VERSION "beta-1.0.5"
+#define VERSION "beta-1.1.2"
 
 #ifdef _MSC_VER
 #   define NOEXCEPT

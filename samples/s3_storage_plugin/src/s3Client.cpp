@@ -1117,6 +1117,33 @@ std::vector<std::string> s3Client::getNextFileToUpload()
                             Json::Value& filesArray = jsonObject["files"];
                             int max_upload_thread = ServerManager::getInstance()->getMaxThread();
                             int current_task_count = m_threadPool.getWorkingTaskCount();
+                            static bool notification_sent = false;
+                            static int minute_count = 12;
+                            if(filesArray.size() >= 600)
+                            {
+                                ServerManager::getInstance()->postEvent("Internal buffer reached level 3 warning, please check throughput configuration","level 3 queue transfer warrning");
+                                minute_count = 12;
+                                notification_sent = false;
+                            }
+                            else if(filesArray.size() >= 400)
+                            {
+                                if(minute_count >= 12)
+                                {
+                                    ServerManager::getInstance()->postEvent("Internal buffer reached level 2 warning, please check throughput configuration","level 2 queue transfer warrning");
+                                    minute_count = 0;
+                                }
+                                minute_count++;
+                            }
+                            else if (filesArray.size() >= 200)
+                            {
+                                if(notification_sent == false)
+                                    ServerManager::getInstance()->postEvent("Internal buffer reached level 1 warning, please check throughput configuration","level 1 queue transfer warrning");
+                                notification_sent = true;
+                            }
+                            else
+                            {
+                                notification_sent = false;
+                            }
                             for(int i = 0; i < filesArray.size(); i++)
                             {
                                 if(fileName.size() >= (max_upload_thread - current_task_count))
