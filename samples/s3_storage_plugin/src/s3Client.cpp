@@ -500,6 +500,7 @@ bool s3Client::removeUrl(const char *url)
         bool ret = false;
         if(m_storageAvailable && (m_impl.get() != nullptr))
         {
+            uint64_t fileSize = getRemoteFileSize(url);
             Aws::S3::Model::DeleteObjectRequest request;
             request.WithBucket(m_bucket)
                     .WithKey(url);
@@ -512,6 +513,10 @@ bool s3Client::removeUrl(const char *url)
             else 
             {
                 INFOLOG("deleted file",url,m_bucket);
+                if(fileSize > 0)
+                {
+                    m_space -= fileSize;
+                }
                 ret = true;
             }
         }
@@ -943,6 +948,10 @@ void s3Client::fileUploadThread()
                                 else 
                                 {
                                     INFOLOG("Successfully uploaded file:",filename);
+                                    {
+                                        std::lock_guard<std::mutex> lock(m_mutex);
+                                        m_space += size;
+                                    }
                                     if (remove(file.fullPath.c_str()) != 0) 
                                     {
                                         ERRORLOG("Failed to remove file:",file.fullPath.c_str());
@@ -1025,6 +1034,7 @@ void s3Client::updateRemoteFolderSize()
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             m_totalSpaceUpdating = true;
+            m_space = 0;
         }
 
         std::string url("/");
@@ -1094,6 +1104,10 @@ std::vector<std::string> s3Client::getNextFileToUpload()
     try
     {
         std::lock_guard<std::mutex> lock(m_mutex);
+        if(m_totalSpaceUpdating)
+        {
+            return std::vector<std::string>{};
+        }
         std::vector<std::string> fileName;
         nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(m_bucket + FILE_UPLOAD_JSON);
         std::ifstream inputFile(file.fullPath);

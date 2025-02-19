@@ -217,12 +217,12 @@ namespace nx_spl
         }
         INFOLOG("Host:",u.host);
 
-        schemeSize = 3; // "s3." size
-        if((u.host.size() <= schemeSize) || (u.host.substr(0, schemeSize) != "s3."))
-        {
-            ERRORLOG("Invalid host name",u.host);
-            throw aux::BadUrlException("Invalid host name!!");
-        }
+        // schemeSize = 3; // "s3." size
+        // if((u.host.size() <= schemeSize) || (u.host.substr(0, schemeSize) != "s3."))
+        // {
+        //     ERRORLOG("Invalid host name",u.host);
+        //     throw aux::BadUrlException("Invalid host name!!");
+        // }
 
         if(u.host.empty() || u.uaccessKey.empty() || u.usecreatKey.empty()||u.path.empty())
         {
@@ -819,6 +819,11 @@ namespace nx_spl
             if(fs::exists(file.fullPath.c_str()))
             {
                 size = aux::getFileSize(file.fullPath.c_str());
+                DEBUGLOG("fileSize:",url,size);
+            }
+            else
+            {
+                INFOLOG("File do not exist",url);
             }
             return size;
         }

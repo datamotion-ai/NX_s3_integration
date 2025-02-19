@@ -140,7 +140,10 @@ namespace nx_spl
                 NULL
             );
             if (hFile == INVALID_HANDLE_VALUE)
+            {
+                ERRORLOG("Failed to get file size INVALID_HANDLE_VALUE",fname);
                 return -1;
+            }
 
             LARGE_INTEGER s;
             if (!GetFileSizeEx(hFile, &s))
@@ -156,7 +159,10 @@ namespace nx_spl
 
             struct stat st;
             if (stat(fname, &st) == -1)
+            {
+                ERRORLOG("Failed to get file size",fname);
                 return -1;
+            }
             return st.st_size;
         #endif
         }
