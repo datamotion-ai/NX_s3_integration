@@ -496,11 +496,11 @@ bool s3Client::removeUrl(const char *url)
     DEBUGLOG("removeUrl",url);
     try
     {
+        uint64_t fileSize = getRemoteFileSize(url);
         std::lock_guard<std::mutex> lock(m_mutex);
         bool ret = false;
         if(m_storageAvailable && (m_impl.get() != nullptr))
         {
-            uint64_t fileSize = getRemoteFileSize(url);
             Aws::S3::Model::DeleteObjectRequest request;
             request.WithBucket(m_bucket)
                     .WithKey(url);
