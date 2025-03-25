@@ -42,7 +42,7 @@
 #include "daily_loger.hpp"
 
 
-#define VERSION "beta-1.1.2"
+#define VERSION "beta-1.1.3"
 
 #ifdef _MSC_VER
 #   define NOEXCEPT
@@ -199,6 +199,7 @@ namespace nx_spl
             std::string usecreatKey;
             std::string host;
             std::string path;
+            std::string port;
 
             static Url fromString(const std::string& s)
             {
@@ -207,7 +208,8 @@ namespace nx_spl
                     scheme,
                     accessKey,
                     secreatKey,
-                    host
+                    host,
+                    port
                 } 
                 
                 ps = scheme;
@@ -297,7 +299,28 @@ namespace nx_spl
                             u.host.assign(s.begin() + start, s.begin() + cur);
                             ++cur;
                             start = cur;
+                            ps = port;
                         }
+                        break;
+                    case port:
+                        c = s[cur];
+                        if (c == '/') //path begins
+                        {
+                            u.port.assign(s.begin() + start, s.begin() + cur);
+                            u.path.assign(s.begin() + cur, s.end());
+                            goto end;
+                        }
+        
+                        if (cur == (int) s.size())
+                        {
+                            if (cur - start == 0) // If you wrote ':' after hostname, provide some valid port value too
+                                throw std::logic_error("Url parse failed. Port is empty");
+                            u.port.assign(s.begin() + start, s.begin() + cur);
+                            goto end;
+                        }
+                        if (!std::isdigit(s[cur]))
+                            throw std::logic_error("Url parse failed. Port should contain digits only");
+                        ++cur;
                         break;
                     default:
                         // something strange happened if we are here

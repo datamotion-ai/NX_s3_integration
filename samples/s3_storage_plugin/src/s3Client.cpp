@@ -497,6 +497,7 @@ bool s3Client::removeUrl(const char *url)
     DEBUGLOG("removeUrl",url);
     try
     {
+        uint64_t fileSize = getRemoteFileSize(url);
         std::lock_guard<std::mutex> lock(m_mutex);
         bool ret = false;
         if(m_storageAvailable && (m_impl.get() != nullptr))
@@ -513,6 +514,9 @@ bool s3Client::removeUrl(const char *url)
             else 
             {
                 INFOLOG("deleted file",url,m_bucket);
+                {
+                    m_space -= fileSize;
+                }
                 ret = true;
             }
         }
@@ -945,6 +949,10 @@ void s3Client::fileUploadThread()
                                 else 
                                 {
                                     INFOLOG("Successfully uploaded file:",filename);
+                                    {
+                                        std::lock_guard<std::mutex> lock(m_mutex);
+                                        m_space += size;
+                                    }
                                     if (remove(file.fullPath.c_str()) != 0) 
                                     {
                                         ERRORLOG("Failed to remove file:",file.fullPath.c_str());
