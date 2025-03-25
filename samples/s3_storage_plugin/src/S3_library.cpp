@@ -229,6 +229,10 @@ namespace nx_spl
             ERRORLOG("Invalid Url or credentials",url);
             throw aux::BadUrlException("Invalid Url or credentials!!");
         }
+        if(!u.port.empty())
+        {
+            u.host = u.host + ":" + u.port; 
+        }
 
         m_impl.reset(new s3Client(u.host,u.uaccessKey,u.usecreatKey,u.path));
 
