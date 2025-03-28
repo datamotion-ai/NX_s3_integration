@@ -215,14 +215,6 @@ namespace nx_spl
         {
             u.host = u.host.substr(schemeSize,u.host.size());
         }
-        INFOLOG("Host:",u.host);
-
-        // schemeSize = 3; // "s3." size
-        // if((u.host.size() <= schemeSize) || (u.host.substr(0, schemeSize) != "s3."))
-        // {
-        //     ERRORLOG("Invalid host name",u.host);
-        //     throw aux::BadUrlException("Invalid host name!!");
-        // }
 
         if(u.host.empty() || u.uaccessKey.empty() || u.usecreatKey.empty()||u.path.empty())
         {
@@ -234,6 +226,8 @@ namespace nx_spl
             u.host = u.host + ":" + u.port; 
         }
 
+        INFOLOG("Host:",u.host);
+        
         m_impl.reset(new s3Client(u.host,u.uaccessKey,u.usecreatKey,u.path));
 
         if((m_impl.get() != nullptr) && m_impl.get()->establishS3Connection())

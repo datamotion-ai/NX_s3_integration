@@ -89,7 +89,7 @@ bool s3Client::establishS3Connection()
             }
             else
             {
-                ERRORLOG("Failed to list bucket lists!! connection failed!!");
+                ERRORLOG("Failed to list bucket lists!! connection failed!!",outcome.GetError().GetMessage(),m_url + "/" + m_bucket);
             }
 
             if(!ServerManager::getInstance()->isServerIntialize())

@@ -307,7 +307,7 @@ namespace nx_spl
                         if (c == '/') //path begins
                         {
                             u.port.assign(s.begin() + start, s.begin() + cur);
-                            u.path.assign(s.begin() + cur, s.end());
+                            u.path.assign(s.begin() + cur + 1, s.end());
                             goto end;
                         }
         
