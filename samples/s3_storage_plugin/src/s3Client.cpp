@@ -671,7 +671,7 @@ bool s3Client::uploadFile(const char *url, std::string fileName)
                 request.SetKey(url);
                 request.SetBody(inputData);
                 Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
-                static_cast<Aws::FStream*>(inputData.get())->close();
+                //static_cast<Aws::FStream*>(inputData.get())->close();
                 if (!outcome.IsSuccess()) 
                 {
                     ERRORLOG("Unable to upload file:",url,outcome.GetError().GetMessage().c_str());
@@ -681,6 +681,7 @@ bool s3Client::uploadFile(const char *url, std::string fileName)
                     INFOLOG("Successfully uploaded file:",fileName,url,m_bucket);
                     ret = true;
                 }
+                inputData.reset();
             }
         }
         else
@@ -940,13 +941,15 @@ void s3Client::fileUploadThread()
                                 request.SetKey(filename);
                                 request.SetBody(inputData);
                                 Aws::S3::Model::PutObjectOutcome outcome = m_uploadImpl->PutObject(request);
-                                static_cast<Aws::FStream*>(inputData.get())->close();
+                                //static_cast<Aws::FStream*>(inputData.get())->close();
                                 if (!outcome.IsSuccess()) 
                                 {
+                                    inputData.reset();
                                     ERRORLOG("Unable to upload file:",filename,outcome.GetError().GetMessage().c_str());
                                 }
                                 else 
                                 {
+                                    inputData.reset();
                                     INFOLOG("Successfully uploaded file:",filename);
                                     {
                                         std::lock_guard<std::mutex> lock(m_mutex);
