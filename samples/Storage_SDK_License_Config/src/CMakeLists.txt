@@ -15,7 +15,7 @@ add_executable(Storage_SDK_License_Config "Storage_SDK_License_Config.cpp")
 SET(CMAKE_EXE_LINKER_FLAGS "-Wl,--as-needed")
 
 target_include_directories(Storage_SDK_License_Config PRIVATE
-    /home/brijal/NX_s3_integration/lib/jsoncpp/include)
+    ../../../lib/jsoncpp/include)
 
 if(WINDOWS_BUILD)
     target_include_directories(Storage_SDK_License_Config PRIVATE
