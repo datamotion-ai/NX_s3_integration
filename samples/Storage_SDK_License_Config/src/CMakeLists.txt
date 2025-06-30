@@ -26,7 +26,7 @@ if(WINDOWS_BUILD)
         OpenSSL::Crypto)
 else()
     target_link_libraries(Storage_SDK_License_Config PRIVATE  
-        /home/brijal/NX_s3_integration/lib/jsoncpp/build/lib/libjsoncpp.a
+        ../../../lib/jsoncpp/build/lib/libjsoncpp.a
         ssl 
         crypto
         z)
