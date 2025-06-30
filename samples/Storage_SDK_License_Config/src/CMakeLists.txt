@@ -26,7 +26,7 @@ if(WINDOWS_BUILD)
         OpenSSL::Crypto)
 else()
     target_link_libraries(Storage_SDK_License_Config PRIVATE  
-        ../../../lib/jsoncpp/build/lib/libjsoncpp.a
+        ${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/jsoncpp/build/lib/libjsoncpp.a
         ssl 
         crypto
         z)
