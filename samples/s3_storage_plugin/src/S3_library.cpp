@@ -63,7 +63,7 @@ namespace nx_spl
         }
         catch (const std::exception& e)
         {
-            ERRORLOG(e.what());
+            ERRORLOG("Exception Error:",e.what());
             if (ecode)
                 *ecode = error::UnknownError;
             return nullptr;
@@ -156,7 +156,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG(e.what());
+            ERRORLOG("Exception Error:",e.what());
         }
         
         return nullptr;
@@ -170,7 +170,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG(e.what());
+            ERRORLOG("Exception Error:",e.what());
         }
     }
     int nx_spl::S3StorageFactory::releaseRef() const
@@ -182,7 +182,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG(e.what());
+            ERRORLOG("Exception Error:",e.what());
         }
     }
 
@@ -326,7 +326,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG(e.what());
+            ERRORLOG("Exception Error:",e.what());
         }
         return 1;
     }
@@ -408,7 +408,7 @@ namespace nx_spl
         }
         catch(std::exception &e)
         {
-            ERRORLOG("Error:",uri,flags,e.what());
+            ERRORLOG("Exception Error:",uri,flags,e.what());
             if(ecode)
                 *ecode = error::UrlNotExists;
             return nullptr;
@@ -463,7 +463,7 @@ namespace nx_spl
         }
         catch(std::exception &e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             if(ecode)
                 *ecode = error::UnknownError;
             return 0;
@@ -562,7 +562,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             if(ecode)
                 *ecode = error::UnknownError;
         }
@@ -602,7 +602,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             if(ecode)
                 *ecode = error::UnknownError;
         }
@@ -657,7 +657,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             if(ecode)
                 *ecode = error::UnknownError;
         }
@@ -687,7 +687,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             if(ecode)
                 *ecode = error::UnknownError;
             return nullptr;
@@ -756,7 +756,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             if(ecode)
                 *ecode = error::UnknownError;
             return 0;
@@ -795,7 +795,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             if(ecode)
                 *ecode = error::UnknownError;
             return 0;
@@ -827,7 +827,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             if(ecode)
                 *ecode = error::UnknownError;
             return 0;
@@ -860,7 +860,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
         }
         return nullptr;
     }
@@ -873,7 +873,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             return 0;
         }
     }
@@ -887,7 +887,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             return 0;
         }
     }
@@ -986,11 +986,11 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error while IO operation",e.what());
+            ERRORLOG("Exception Error while IO operation",e.what());
         }
         catch(...)
         {
-            ERRORLOG("Error while IO operation",m_uri,m_mode);
+            ERRORLOG("Exception Error while IO operation",m_uri,m_mode);
         }
         return ret;
     }
@@ -1050,7 +1050,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             if (ecode)
                 *ecode = error::UnknownError;
             return 0;
@@ -1108,7 +1108,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             if (ecode)
                 *ecode = error::UnknownError;
             return 0;
@@ -1147,7 +1147,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             if (ecode)
                 *ecode = error::UnknownError;
             return 0;
@@ -1196,7 +1196,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
         }
         return nullptr;
     }
@@ -1210,7 +1210,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             return 0;
         }
     }
@@ -1224,7 +1224,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             return 0;
         }
     }
@@ -1249,7 +1249,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
         }
         
         
@@ -1281,7 +1281,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
         }
     }
 
@@ -1337,7 +1337,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
         }
         return nullptr;
     }
@@ -1368,7 +1368,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
         }
         return nullptr;
     }
@@ -1382,7 +1382,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             return 0;
         }
     }
@@ -1396,7 +1396,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Error:",e.what());
+            ERRORLOG("Exception Error:",e.what());
             return 0;
         }
     }

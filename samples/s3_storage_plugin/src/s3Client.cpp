@@ -16,7 +16,7 @@ m_running(false),
 m_storageAvailable(false),
 m_reUpdateSpace(false),
 m_impl(nullptr),
-m_uploadImpl(nullptr),
+//m_uploadImpl(nullptr),
 m_spaceImpl(nullptr),
 m_space(0),
 m_threadPool(0,10)
@@ -32,10 +32,10 @@ s3Client::~s3Client()
     {
        m_impl.reset(); 
     }
-    if(m_uploadImpl.get() != nullptr)
-    {
-        m_uploadImpl.reset();
-    }
+    // if(m_uploadImpl.get() != nullptr)
+    // {
+    //     m_uploadImpl.reset();
+    // }
     if(m_spaceImpl.get() != nullptr)
     {
         m_spaceImpl.reset();
@@ -110,7 +110,7 @@ bool s3Client::establishS3Connection()
     }
     catch(const std::exception& e)
     {
-         ERRORLOG("Error:",e.what());
+         ERRORLOG("Exception Error:",e.what());
     }
     return false;
 }
@@ -157,15 +157,15 @@ bool s3Client::initializeConnection()
         
         #if defined (_WIN32)
             m_impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
-            m_uploadImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
+            //m_uploadImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
             m_spaceImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
         #else
             m_impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
-            m_uploadImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
+            //m_uploadImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
             m_spaceImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
         #endif
 
-        if((m_impl.get() != nullptr) && (m_uploadImpl.get() != nullptr) && (m_spaceImpl.get() != nullptr))
+        if((m_impl.get() != nullptr) /*&& (m_uploadImpl.get() != nullptr)*/ && (m_spaceImpl.get() != nullptr))
         {
             m_running = true;
             m_reUpdateSpace = false;
@@ -182,7 +182,7 @@ bool s3Client::initializeConnection()
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
     }
     return false;
 }
@@ -216,7 +216,7 @@ bool s3Client::remoteUriExists(const std::string& uri)
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return false;
     }
 }
@@ -274,7 +274,7 @@ bool s3Client::remoteDirExists(const std::string &uri)
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return false;
     }
 }
@@ -301,7 +301,7 @@ uint64_t s3Client::remoteFolderSize(bool update)
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return 0;
     }
 }
@@ -343,7 +343,7 @@ uint64_t s3Client::getRemoteFileSize(const std::string& uri)
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return 0;
     }
 }
@@ -430,7 +430,7 @@ std::vector<std::string> s3Client::getobjectKeys(const char *dirUrl)
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return std::vector<std::string>();
     }
 }
@@ -486,7 +486,7 @@ bool s3Client::renameFile(const char *oldUrl, const char *newUrl)
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return false;
     }
 }
@@ -535,7 +535,7 @@ bool s3Client::removeUrl(const char *url)
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return false;
     }
 }
@@ -642,7 +642,7 @@ bool s3Client::addFileToUploadInQueue(const char *url)
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return false;
     }
 }
@@ -700,7 +700,7 @@ bool s3Client::uploadFile(const char *url, std::string fileName)
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return false;
     }
 }
@@ -757,7 +757,7 @@ bool s3Client::downloadFile(const char *url, std::string fileName)
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return false;
     }
 }
@@ -840,7 +840,7 @@ bool s3Client::isFileInUploadList(std::string fileName) const
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return false;
     }
 }
@@ -881,7 +881,7 @@ bool s3Client::createBucket()
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return false;
     }
 }
@@ -923,52 +923,83 @@ void s3Client::fileUploadThread()
                     [this,file,filename]() 
                     {
                         INFOLOG("added file in queue",file.name);
-                        if(m_uploadImpl.get() != nullptr)
+                        try 
                         {
-                            std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
-                                                                                                    file.fullPath.c_str(),
-                                                                                                    std::ios_base::in | std::ios_base::binary);
-                            if (!inputData->good()) 
+                            s3PtrType   m_uploadImpl; 
+                            Aws::Client::ClientConfiguration clientConfig;
+                            clientConfig.scheme = Aws::Http::Scheme::HTTPS;
+                            clientConfig.endpointOverride = Aws::String(m_url);
+                            clientConfig.userAgent = g_userAgent;
+
+                            Aws::Auth::AWSCredentials credentials;
+                            credentials.SetAWSAccessKeyId(m_accessKey);
+                            credentials.SetAWSSecretKey(m_secretKey);
+                            
+                            #if defined (_WIN32)
+                                m_uploadImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
+                            #else
+                                m_uploadImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
+                            #endif
+                            
+                            if(m_uploadImpl.get() != nullptr)
                             {
-                                ERRORLOG("Unable to read local file:",file.fullPath);
+                                std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
+                                                                                                        file.fullPath.c_str(),
+                                                                                                        std::ios_base::in | std::ios_base::binary);
+                                if (!inputData->good()) 
+                                {
+                                    ERRORLOG("Unable to read local file:",file.fullPath);
+                                }
+                                else
+                                {
+                                    uint64_t size = nx_spl::aux::getFileSize(file.fullPath.c_str());
+                                    INFOLOG("Uploading file!!",file.name,size);
+                                    Aws::S3::Model::PutObjectRequest request;
+                                    request.SetBucket(m_bucket);
+                                    request.SetKey(filename);
+                                    request.SetBody(inputData);
+                                    Aws::S3::Model::PutObjectOutcome outcome = m_uploadImpl->PutObject(request);
+                                    //static_cast<Aws::FStream*>(inputData.get())->close();
+                                    if (!outcome.IsSuccess()) 
+                                    {
+                                        inputData.reset();
+                                        ERRORLOG("Unable to upload file:",filename,outcome.GetError().GetMessage().c_str());
+                                    }
+                                    else 
+                                    {
+                                        inputData.reset();
+                                        INFOLOG("Successfully uploaded file:",filename);
+                                        {
+                                            std::lock_guard<std::mutex> lock(m_mutex);
+                                            m_space += size;
+                                        }
+                                        if (remove(file.fullPath.c_str()) != 0) 
+                                        {
+                                            ERRORLOG("Failed to remove file:",file.fullPath.c_str());
+                                            ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
+                                        }
+                                        removeFileFromUploadList(filename);
+                                    }
+                                }
                             }
                             else
                             {
-                                uint64_t size = nx_spl::aux::getFileSize(file.fullPath.c_str());
-                                INFOLOG("Uploading file!!",file.name,size);
-                                Aws::S3::Model::PutObjectRequest request;
-                                request.SetBucket(m_bucket);
-                                request.SetKey(filename);
-                                request.SetBody(inputData);
-                                Aws::S3::Model::PutObjectOutcome outcome = m_uploadImpl->PutObject(request);
-                                //static_cast<Aws::FStream*>(inputData.get())->close();
-                                if (!outcome.IsSuccess()) 
-                                {
-                                    inputData.reset();
-                                    ERRORLOG("Unable to upload file:",filename,outcome.GetError().GetMessage().c_str());
-                                }
-                                else 
-                                {
-                                    inputData.reset();
-                                    INFOLOG("Successfully uploaded file:",filename);
-                                    {
-                                        std::lock_guard<std::mutex> lock(m_mutex);
-                                        m_space += size;
-                                    }
-                                    if (remove(file.fullPath.c_str()) != 0) 
-                                    {
-                                        ERRORLOG("Failed to remove file:",file.fullPath.c_str());
-                                        ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
-                                    }
-                                    removeFileFromUploadList(filename);
-                                }
+                                ERRORLOG("implPtrType is nullptr!");
                             }
+                            {
+                                std::lock_guard<std::mutex> lock(m_mutex);
+                                m_workfiles.erase(std::remove(m_workfiles.begin(), m_workfiles.end(), filename), m_workfiles.end());
+                            }
+                            m_uploadImpl.reset();
                         }
-                        else
+                        catch(const std::exception& e)
                         {
-                            ERRORLOG("implPtrType is nullptr!");
+                            ERRORLOG("Exception Error:",e.what());
                         }
-                        m_workfiles.erase(std::remove(m_workfiles.begin(), m_workfiles.end(), filename), m_workfiles.end());
+                        catch(...)
+                        {
+                            ERRORLOG("Exception Error: Unknown");
+                        }
                     }
                     );
                 }
@@ -984,7 +1015,7 @@ void s3Client::fileUploadThread()
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
     }
 }
 
@@ -1019,7 +1050,7 @@ void s3Client::keepAliveActivator()
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
     }
 }
 
@@ -1097,7 +1128,7 @@ void s3Client::updateRemoteFolderSize()
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
     }
 }
 
@@ -1107,7 +1138,7 @@ std::vector<std::string> s3Client::getNextFileToUpload()
     try
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if(m_totalSpaceUpdating)
+        if(m_totalSpaceUpdating || m_workfiles.size() >= ServerManager::getInstance()->getMaxThread())
         {
             return std::vector<std::string>{};
         }
@@ -1189,7 +1220,7 @@ std::vector<std::string> s3Client::getNextFileToUpload()
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
         return std::vector<std::string>{};
     }
 }
@@ -1253,6 +1284,6 @@ void s3Client::removeFileFromUploadList(std::string fileName)
     }
     catch(const std::exception& e)
     {
-        ERRORLOG("Error:",e.what());
+        ERRORLOG("Exception Error:",e.what());
     }
 }

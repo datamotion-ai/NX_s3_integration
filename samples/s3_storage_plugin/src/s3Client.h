@@ -70,7 +70,7 @@ class s3Client
     bool        m_storageAvailable;
     bool        m_reUpdateSpace;
     s3PtrType   m_impl;
-    s3PtrType   m_uploadImpl;
+    //s3PtrType   m_uploadImpl;
     s3PtrType   m_spaceImpl;
     mutable std::mutex  m_mutex;
     mutable std::mutex  m_waitmutex;

@@ -5,6 +5,7 @@
 #include <vector>
 #include <thread>
 #include <mutex>
+#include <vector>
 #include <condition_variable>
 #include <atomic>
 #include <functional>
@@ -24,16 +25,18 @@ public:
     ~ThreadPool();
 
 private:
+    std::mutex workersMutex;
     std::vector<std::thread> workers;
     std::queue<std::function<void()>> tasks;
+    std::vector<std::shared_ptr<std::atomic<bool>>> stopFlags;
     std::mutex queueMutex;
     std::condition_variable condition;
-    std::atomic<bool> stop;
     std::thread managerThread;
 
     size_t minThreads;
     size_t maxThreads;
-    std::atomic<size_t> activeThreads;
+
+    std::atomic<bool> stop;
 
     void addWorker();
 
