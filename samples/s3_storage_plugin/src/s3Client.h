@@ -33,7 +33,7 @@
 
 typedef std::shared_ptr<Aws::S3::S3Client> s3PtrType;
 
-class s3Client
+class s3Client : public std::enable_shared_from_this<s3Client>
 {
     public:
     s3Client(const std::string  &url, const std::string  &uaccessKey, const std::string  &usecreatKey, const std::string  &bucket);
@@ -74,6 +74,8 @@ class s3Client
     s3PtrType   m_spaceImpl;
     mutable std::mutex  m_mutex;
     mutable std::mutex  m_waitmutex;
+    bool m_notification_sent = false;
+    int m_minute_count = 12;
     std::string m_url;
     std::string m_accessKey;
     std::string m_secretKey;
