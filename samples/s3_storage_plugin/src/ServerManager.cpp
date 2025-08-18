@@ -396,20 +396,28 @@ int ServerManager::getMaxThread()
 void ServerManager::updateLicenseDetail()
 {
     DEBUGLOG("ServerManager::updateLicenseDetail");
-    m_serverInitialize = true;
-    if(loadServerCredential())
+    try
     {
-        if(verifyLicense())
+        m_serverInitialize = true;
+        if(loadServerCredential())
         {
-            m_licenceAvailable = true;
-            m_timer.setInterval(TEN_MINUTE);
+            if(verifyLicense())
+            {
+                m_licenceAvailable = true;
+                m_timer.setInterval(TEN_MINUTE);
+            }
+            else
+            {
+                m_licenceAvailable = false;
+                m_timer.setInterval(ONE_MINUTE);
+            }
+            if(m_pluginRegistered == false)
+                registerPlugin();
         }
-        else
-        {
-            m_licenceAvailable = false;
-            m_timer.setInterval(ONE_MINUTE);
-        }
-        if(m_pluginRegistered == false)
-            registerPlugin();
     }
+    catch (...)
+    {
+        ERRORLOG("exception Error");
+    }
+    
 }

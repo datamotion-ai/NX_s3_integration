@@ -29,6 +29,7 @@ namespace nx_spl
                 static std::mutex  m_mutex;
                 static std::ofstream m_file;
                 static int m_maxLogFiles;
+                static bool m_initialized;
 
             public:
                 static void SetVerbosity(LogPriority new_priority);

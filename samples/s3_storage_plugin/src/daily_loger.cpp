@@ -6,6 +6,7 @@ std::string nx_spl::aux::DailyLogger::m_currentLogFile;
 std::mutex  nx_spl::aux::DailyLogger::m_mutex;
 std::ofstream nx_spl::aux::DailyLogger::m_file;
 int nx_spl::aux::DailyLogger::m_maxLogFiles = 3;
+bool nx_spl::aux::DailyLogger::m_initialized = false;
 
 
 void nx_spl::aux::DailyLogger::updateLogFile() 
@@ -71,6 +72,7 @@ void nx_spl::aux::DailyLogger::SetMaxLogFileCount(const int logCount)
         INFOLOG("Log count changed",m_maxLogFiles)
         m_maxLogFiles = logCount;
     }
+    m_initialized = true;
 }
 
 void nx_spl::aux::DailyLogger::Initialize() 
@@ -104,7 +106,7 @@ void nx_spl::aux::DailyLogger::deleteOldLogFiles()
         }
     }
 
-    if(logFiles.empty() || (logFiles.size() <= m_maxLogFiles))
+    if(logFiles.empty() || !m_initialized || (logFiles.size() <= m_maxLogFiles))
         return;
 
     std::sort(logFiles.begin(), logFiles.end(), [](const fs::path& a, const fs::path& b) 
