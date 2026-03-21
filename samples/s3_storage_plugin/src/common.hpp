@@ -62,7 +62,6 @@
 #define ONE_MINUTE 60 * 1000
 #define FIVE_MINUTE 5 * ONE_MINUTE
 #define TEN_MINUTE 10 * ONE_MINUTE
-#define MAX_FILE_WRITE_COUNT 1
 
 extern bool g_bucketSizeNeedUpdate;
 extern std::vector<std::string> g_removeFileList;
@@ -351,6 +350,7 @@ namespace nx_spl
 
         uintmax_t getFolderSize(const fs::path& folder_path); 
 
+        std::string getCurrentDate();
     }
 }
 

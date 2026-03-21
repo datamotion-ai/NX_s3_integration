@@ -72,9 +72,9 @@ namespace nx_spl
 
     private:
         int                     m_mode;
-        int                     m_fileWriteCount;
         mutable int64_t         m_pos;
-        std::string             m_uri; //file URI
+        std::string             m_uri;
+        std::string             m_updateDate;
         implPtrType             m_impl;
         aux::FileNameAndPath    m_localfile;
         bool                    m_altered;

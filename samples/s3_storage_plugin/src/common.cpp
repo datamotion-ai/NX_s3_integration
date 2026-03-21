@@ -201,5 +201,17 @@ namespace nx_spl
             }
             return 0; // Return 0 if there was an error
         }
+
+        std::string getCurrentDate() {
+            std::time_t now = std::time(nullptr);
+            std::tm local_tm = *std::localtime(&now);
+
+            std::mktime(&local_tm);
+
+            char buffer[20];
+            std::strftime(buffer, sizeof(buffer), "%d-%m-%Y", &local_tm);
+
+            return std::string(buffer);
+        }
     }
 }

@@ -11,7 +11,7 @@ class ServerManager
     static void deleteInstance();
     bool isLicenseAvailable() const;
     bool isServerIntialize() const;
-    int64_t getLocalBufferSize();
+    uint64_t getLocalBufferSize();
     int getMaxThread();
 
     private:
@@ -30,7 +30,7 @@ class ServerManager
     bool m_pluginRegistered;
     std::string m_host;
     std::string m_serverOEM;
-    int64_t m_local_buffer_size;
+    uint64_t m_local_buffer_size;
     int  m_maxThread;
     Timer m_timer;
 };

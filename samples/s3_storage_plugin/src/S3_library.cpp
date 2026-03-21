@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <map>
+#include "common.hpp"
 #include "S3_library.h"
 #include "daily_loger.hpp"
 #include "ServerManager.h"
@@ -61,13 +62,6 @@ namespace nx_spl
         {
             ret = new S3Storage(url);
         }
-        catch (const std::exception& e)
-        {
-            ERRORLOG("Exception Error:",e.what());
-            if (ecode)
-                *ecode = error::UnknownError;
-            return nullptr;
-        }
         catch (const std::bad_alloc& e)
         {
             ERRORLOG(e.what());
@@ -94,6 +88,13 @@ namespace nx_spl
             ERRORLOG(e.what());
             if (ecode)
                 *ecode = error::StorageUnavailable;
+            return nullptr;
+        }
+        catch (const std::exception& e)
+        {
+            ERRORLOG("Exception Error:", e.what());
+            if (ecode)
+                *ecode = error::UnknownError;
             return nullptr;
         }
         return ret;
@@ -902,7 +903,7 @@ namespace nx_spl
                                     int mode, 
                                     const  implPtrType &impl
         ): m_mode(mode),
-        m_fileWriteCount(0),
+        m_updateDate(""),
         m_pos(0),
         m_altered(false),
         m_localsize(0),
@@ -1020,7 +1021,7 @@ namespace nx_spl
             if (ecode)
                 *ecode = error::NoError;
 
-            int writeSize = fwrite(src, 1, size, m_file);
+            size_t writeSize = fwrite(src, 1, size, m_file);
             if(writeSize < size)
             {
                 ERRORLOG("Failed to write into file",writeSize,size,m_localfile.fullPath);
@@ -1031,8 +1032,7 @@ namespace nx_spl
             m_pos += writeSize;
             m_localsize += writeSize;
             m_altered = true;
-            m_fileWriteCount++;
-            if((m_localfile.fullPath.find(".nxdb") != std::string::npos) && (m_fileWriteCount >= MAX_FILE_WRITE_COUNT))
+            if((m_localfile.fullPath.find(".nxdb") != std::string::npos) && (m_updateDate.empty() || m_updateDate != nx_spl::aux::getCurrentDate()))
             {
                 fclose(m_file);
                 flush();
@@ -1044,7 +1044,7 @@ namespace nx_spl
                         *ecode = error::NotEnoughSpace;
                     writeSize = 0;
                 }
-                m_fileWriteCount = 0;
+                m_updateDate = nx_spl::aux::getCurrentDate();
             } 
             return writeSize;
         }
@@ -1063,7 +1063,7 @@ namespace nx_spl
         try
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            uint32_t readSize = 0;
+            size_t readSize = 0;
             
             if (!(m_mode & io::ReadOnly))
             {
