@@ -87,16 +87,16 @@ bool ServerManager::loadServerCredential()
             // if(root.isMember("pluginRegistered"))
                 //m_pluginRegistered = root["pluginRegistered"].asBool();
             if(root.isMember("local_buffer")){
-                m_local_buffer_size = root["local_buffer"].asInt64();
+                m_local_buffer_size = root["local_buffer"].asUInt64();
                 m_local_buffer_size *= DEFAULT_1_GB ;
             }
             INFOLOG("Local Buffer Size",m_local_buffer_size);
             if(root.isMember("max_parallel_upload")) {
-                int log_level = root["log_level"].asInt64();
+                int log_level = root["log_level"].asInt();
                 nx_spl::aux::DailyLogger::SetVerbosity(nx_spl::aux::DailyLogger::LogPriority(log_level));
             }
             if(root.isMember("log_max")) {
-                int log_max = root["log_max"].asInt64();
+                int log_max = root["log_max"].asInt();
                 nx_spl::aux::DailyLogger::SetMaxLogFileCount(log_max);
             }
             if(root.isMember("max_parallel_upload"))
@@ -381,7 +381,7 @@ void ServerManager::registerPlugin()
     }
 }
 
-int64_t ServerManager::getLocalBufferSize()
+uint64_t ServerManager::getLocalBufferSize()
 {
     DEBUGLOG("ServerManager::getLocalBufferSize");
     return m_local_buffer_size;
