@@ -24,7 +24,7 @@ namespace nx_spl
     // S3StorageFactory
 
     std::mutex nx_spl::S3StorageFactory::m_mutex;
-    bool  g_licenseAvailable = false;
+    // bool  g_licenseAvailable = false;
 
     nx_spl::S3StorageFactory::S3StorageFactory()
     {

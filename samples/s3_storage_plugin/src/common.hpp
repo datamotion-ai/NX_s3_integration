@@ -56,7 +56,7 @@
 #define DEFAULT_1_GB  1024 * 1024 * 1024 //1 GB
 #define S3_DEFAULT_TOTAL_SPACE 1024LL * DEFAULT_1_GB //100 GB
 
-#define LICENSE_CONFIG_FILE "license.config"
+#define ENV_CONFIG_FILE "env.config"
 #define FILE_UPLOAD_JSON "UploadList.json"
 #define ONE_SECOND 1000
 #define ONE_MINUTE 60 * 1000

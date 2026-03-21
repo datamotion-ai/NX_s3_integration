@@ -956,15 +956,21 @@ void s3Client::fileUploadThread()
                                         request.SetKey(filename);
                                         request.SetBody(inputData);
                                         Aws::S3::Model::PutObjectOutcome outcome = uploadImpl->PutObject(request);
-                                        //static_cast<Aws::FStream*>(inputData.get())->close();
+                                        #if defined(_WIN32)
+                                            static_cast<Aws::FStream*>(inputData.get())->close();
+                                        #endif
                                         if (!outcome.IsSuccess()) 
                                         {
-                                            //inputData.reset();
+                                            #if defined(__linux__)
+                                                inputData.reset();
+                                            #endif
                                             ERRORLOG("Unable to upload file:",filename,outcome.GetError().GetMessage().c_str());
                                         }
                                         else 
                                         {
-                                            //inputData.reset();
+                                            #if defined(__linux__)
+                                                inputData.reset();
+                                            #endif
                                             INFOLOG("Successfully uploaded file:",filename);
                                             {
                                                 std::lock_guard<std::mutex> lock(self->m_mutex);

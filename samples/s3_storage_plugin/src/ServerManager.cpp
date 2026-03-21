@@ -62,10 +62,10 @@ bool ServerManager::loadServerCredential()
     DEBUGLOG("ServerManager::loadServerCredential");
     bool ret = false;
     Json::Reader reader;
-    std::ifstream jsonFile(LICENSE_CONFIG_FILE);
+    std::ifstream jsonFile(ENV_CONFIG_FILE);
     if (!jsonFile.is_open()) 
     {
-        ERRORLOG("Error opening config file:",LICENSE_CONFIG_FILE);
+        ERRORLOG("Error opening config file:", ENV_CONFIG_FILE);
         m_licenceAvailable = false;
         m_timer.setInterval(ONE_MINUTE);
         ret = ret;
@@ -82,10 +82,10 @@ bool ServerManager::loadServerCredential()
         }
         else
         {
-            if(root.isMember("host"))
-                m_host = root["host"].asString();
-            if(root.isMember("pluginRegistered"))
-                m_pluginRegistered = root["pluginRegistered"].asBool();
+            //if(root.isMember("host"))
+                //m_host = root["host"].asString();
+            // if(root.isMember("pluginRegistered"))
+                //m_pluginRegistered = root["pluginRegistered"].asBool();
             if(root.isMember("local_buffer")){
                 m_local_buffer_size = root["local_buffer"].asInt64();
                 m_local_buffer_size *= DEFAULT_1_GB ;
@@ -342,10 +342,10 @@ void ServerManager::registerPlugin()
                     INFOLOG("successfully registered plugin!!");
                     m_pluginRegistered = true;
                     Json::Reader reader;
-                    std::ifstream jsonFile(LICENSE_CONFIG_FILE);
+                    std::ifstream jsonFile(ENV_CONFIG_FILE);
                     if (!jsonFile.is_open()) 
                     {
-                        ERRORLOG("Error opening config file:",LICENSE_CONFIG_FILE);
+                        ERRORLOG("Error opening config file:", ENV_CONFIG_FILE);
                     }
                     else
                     {
@@ -356,9 +356,9 @@ void ServerManager::registerPlugin()
                         }
                         else
                         {
-                            std::ofstream outputFile(LICENSE_CONFIG_FILE);
+                            std::ofstream outputFile(ENV_CONFIG_FILE);
                             if (!outputFile.is_open()) {
-                                ERRORLOG("Error opening JSON file:",LICENSE_CONFIG_FILE);
+                                ERRORLOG("Error opening JSON file:", ENV_CONFIG_FILE);
                             }
                             else
                             {
@@ -401,7 +401,10 @@ void ServerManager::updateLicenseDetail()
         m_serverInitialize = true;
         if(loadServerCredential())
         {
-            if(verifyLicense())
+            m_licenceAvailable = true;
+            m_timer.setInterval(TEN_MINUTE);
+            /*
+            if (verifyLicense())
             {
                 m_licenceAvailable = true;
                 m_timer.setInterval(TEN_MINUTE);
@@ -410,9 +413,10 @@ void ServerManager::updateLicenseDetail()
             {
                 m_licenceAvailable = false;
                 m_timer.setInterval(ONE_MINUTE);
-            }
+            } 
             if(m_pluginRegistered == false)
                 registerPlugin();
+            */
         }
     }
     catch (...)
