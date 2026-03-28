@@ -1032,10 +1032,15 @@ namespace nx_spl
             m_pos += writeSize;
             m_localsize += writeSize;
             m_altered = true;
-            if((m_localfile.fullPath.find(".nxdb") != std::string::npos) && (m_updateDate.empty() || m_updateDate != nx_spl::aux::getCurrentDate()))
+            if(m_localfile.fullPath.find(".nxdb") != std::string::npos)
             {
                 fclose(m_file);
-                flush();
+                if (ServerManager::getInstance()->isNxdbSyncEnabled()
+                    && (m_updateDate.empty() || m_updateDate != nx_spl::aux::getCurrentDate()))
+                {
+                    flush();
+                    m_updateDate = nx_spl::aux::getCurrentDate();
+                }
                 m_file = fopen(m_localfile.fullPath.c_str(), "r+b");
                 if (fseek(m_file, (int)m_pos, SEEK_SET) != 0) 
                 {
@@ -1044,7 +1049,6 @@ namespace nx_spl
                         *ecode = error::NotEnoughSpace;
                     writeSize = 0;
                 }
-                m_updateDate = nx_spl::aux::getCurrentDate();
             } 
             return writeSize;
         }

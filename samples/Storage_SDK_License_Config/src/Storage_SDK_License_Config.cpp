@@ -24,6 +24,7 @@ int main(int argc, char* argv[])
     int log_level = 1;
     int log_max = 3;
     int thread_max = 10;
+    bool sync_nxdb = true;
 
     //std::string tmp;
     //std::cout << "Enter host[default is localhost:7001]: ";
@@ -31,6 +32,15 @@ int main(int argc, char* argv[])
 
     //if (!tmp.empty())
     //host = tmp;
+
+    std::string tmp;
+    std::cout << "Would you like to sync nxdb overnight?\n \
+    If you do not sync then there will be no backup for the database\n \
+    Press y/n[default is y]: ";
+    std::getline(std::cin, tmp);
+
+    if (!tmp.empty() && (tmp == "n"))
+        sync_nxdb = false;
 
     std::string tmp_buf;
     std::cout << "Enter Local Buffer Size GB[default is 1GB]: ";
@@ -70,6 +80,7 @@ int main(int argc, char* argv[])
 
     Json::Value root;
     //root["host"] = host;
+    root["sync_nxdb"] = sync_nxdb;
     root["local_buffer"] = local_buffer_size;
     root["log_level"] = log_level;
     root["log_max"] = log_max;

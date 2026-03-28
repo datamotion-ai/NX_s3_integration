@@ -45,6 +45,7 @@ ServerManager::ServerManager():
 m_licenceAvailable(false),
 m_serverInitialize(false),
 m_pluginRegistered(false),
+m_syncNxdb(true),
 m_local_buffer_size(1),
 m_maxThread(10)
 {
@@ -86,6 +87,8 @@ bool ServerManager::loadServerCredential()
                 //m_host = root["host"].asString();
             // if(root.isMember("pluginRegistered"))
                 //m_pluginRegistered = root["pluginRegistered"].asBool();
+            if(root.isMember("sync_nxdb"))
+                m_syncNxdb = root["sync_nxdb"].asBool();
             if(root.isMember("local_buffer")){
                 m_local_buffer_size = root["local_buffer"].asUInt64();
                 m_local_buffer_size *= DEFAULT_1_GB ;
@@ -391,6 +394,12 @@ int ServerManager::getMaxThread()
 {
     DEBUGLOG("ServerManager::getMaxThread");
     return m_maxThread;
+}
+
+bool ServerManager::isNxdbSyncEnabled() const
+{
+    DEBUGLOG("ServerManager::isNxdbSyncEnabled");
+    return m_syncNxdb;
 }
 
 void ServerManager::updateLicenseDetail()

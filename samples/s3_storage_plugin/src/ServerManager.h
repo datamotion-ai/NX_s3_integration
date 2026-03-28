@@ -13,6 +13,7 @@ class ServerManager
     bool isServerIntialize() const;
     uint64_t getLocalBufferSize();
     int getMaxThread();
+    bool isNxdbSyncEnabled() const;
 
     private:
     ServerManager();
@@ -28,6 +29,7 @@ class ServerManager
     bool m_licenceAvailable;
     bool m_serverInitialize;
     bool m_pluginRegistered;
+    bool m_syncNxdb;
     std::string m_host;
     std::string m_serverOEM;
     uint64_t m_local_buffer_size;
