@@ -104,7 +104,7 @@ bool ServerManager::loadServerCredential()
             }
             if(root.isMember("max_parallel_upload"))
                 m_maxThread =  root["max_parallel_upload"].asUInt();
-            ret = !m_host.empty();
+            ret = true;
         }
     }
     return ret;
