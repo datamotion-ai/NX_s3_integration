@@ -10,7 +10,7 @@ apt-get install libcurl4-openssl-dev libssl-dev uuid-dev zlib1g-dev libpulse-dev
 current_directory=$(pwd)
 echo "Current directory: $current_directory"
 
-license_file="$current_directory/license.config"
+license_file="$current_directory/env.config"
 
 if [ -f $license_file ]; then
     rm -f $license_file

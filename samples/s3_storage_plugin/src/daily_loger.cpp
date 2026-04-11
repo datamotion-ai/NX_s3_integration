@@ -20,7 +20,7 @@ void nx_spl::aux::DailyLogger::updateLogFile()
     timeInfo = std::localtime(&rawTime);
     std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", timeInfo);
     std::string currentDate(buffer);
-
+    bool logFileCreated = false;
     if (m_currentLogFile.empty() || (m_currentLogFile.find(currentDate) == std::string::npos)) 
     {
         if (m_file.is_open())
@@ -32,6 +32,7 @@ void nx_spl::aux::DailyLogger::updateLogFile()
         }
         m_currentLogFile = m_logDirectory + "/log_" + currentDate + ".txt";
         m_file.open(m_currentLogFile,std::ios_base::app);
+        logFileCreated = true;
         deleteOldLogFiles();
     }
     else if (fs::exists(m_currentLogFile) && fs::file_size(m_currentLogFile) >= maxSizeInBytes) 
@@ -44,7 +45,52 @@ void nx_spl::aux::DailyLogger::updateLogFile()
 
         m_currentLogFile = m_logDirectory + "/log_" + currentDate + ".txt";
         m_file.open(m_currentLogFile,std::ios_base::app);
+        logFileCreated = true;
         deleteOldLogFiles();
+    }
+    if (logFileCreated)
+    {
+        INFOLOG("============================= NXPlugin ================================");
+        std::string os_name;
+        std::string os_version;
+        std::string architecture = "x64";
+        auto now = std::chrono::system_clock::now();
+        std::time_t now_c = std::chrono::system_clock::to_time_t(now);
+        std::tm* localTime = std::localtime(&now_c);
+        auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()) % 1000;
+        std::stringstream ss;
+        ss << std::put_time(localTime, "%Y-%m-%d %H:%M:%S") << '.' << std::setw(3) << std::setfill('0') << milliseconds.count();
+        std::string local_time = ss.str();
+        ss.clear();
+
+#if defined (_WIN32)
+
+        os_name = "Windows";
+        NTSTATUS(WINAPI * RtlGetVersion)(LPOSVERSIONINFOEXW);
+        OSVERSIONINFOEXW osInfo;
+
+        *(FARPROC*)&RtlGetVersion = GetProcAddress(GetModuleHandleA("ntdll"), "RtlGetVersion");
+
+        if (NULL != RtlGetVersion)
+        {
+            osInfo.dwOSVersionInfoSize = sizeof(osInfo);
+            RtlGetVersion(&osInfo);
+        }
+        os_version = std::to_string(osInfo.dwMajorVersion) + "." + std::to_string(osInfo.dwMinorVersion) + "." + std::to_string(osInfo.dwBuildNumber);
+
+#else
+        os_name = "LINUX";
+        struct utsname unameData;
+        uname(&unameData);
+        os_version = unameData.release;
+#endif
+        INFOLOG("============= software_name:", "Wasabi_storage_sdk");
+        INFOLOG("============= software_version:", VERSION);
+        INFOLOG("============= os_name:", os_name);
+        INFOLOG("============= os_version:", os_version);
+        INFOLOG("============= architecture:", architecture);
+        INFOLOG("============= software_localtime:", local_time);
+        INFOLOG("=======================================================================");
     }
 }
 
@@ -90,6 +136,11 @@ void nx_spl::aux::DailyLogger::Dinitialize()
 
 void nx_spl::aux::DailyLogger::deleteOldLogFiles() 
 {
+    if (!m_initialized)
+    {
+        return;
+    }
+
     std::string logFilePrefix = "log_"; 
     std::vector<fs::path> logFiles;
 
@@ -106,7 +157,7 @@ void nx_spl::aux::DailyLogger::deleteOldLogFiles()
         }
     }
 
-    if(logFiles.empty() || !m_initialized || (logFiles.size() <= m_maxLogFiles))
+    if(logFiles.empty() || (logFiles.size() <= m_maxLogFiles))
         return;
 
     std::sort(logFiles.begin(), logFiles.end(), [](const fs::path& a, const fs::path& b) 

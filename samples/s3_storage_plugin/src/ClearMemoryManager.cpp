@@ -97,15 +97,23 @@ void ClearMemoryManager::clearMemory()
     }
     while(!m_removeFileList.empty())
     {
-        std::string filename = m_removeFileList.back();
-        if (fs::exists(filename.c_str()) && (remove(filename.c_str()) != 0)) 
-        {
-            ERRORLOG("Failed to remove file:",filename.c_str());
-            std::this_thread::sleep_for(std::chrono::milliseconds(ONE_MINUTE));
+        try {
+            std::string filename = m_removeFileList.back();
+            if (fs::exists(filename.c_str()) && (remove(filename.c_str()) != 0))
+            {
+                ERRORLOG("Failed to remove file:", filename.c_str());
+                std::this_thread::sleep_for(std::chrono::milliseconds(ONE_MINUTE));
+            }
+            else
+            {
+                m_removeFileList.pop_back();
+            }
         }
-        else
-        {
-            m_removeFileList.pop_back();
+        catch (const fs::filesystem_error& e) {
+            INFOLOG("Filesystem error: ", e.what());
+        }
+        catch (const std::exception& e) {
+            INFOLOG("Error: ", e.what());
         }
     }
 }
@@ -146,6 +154,7 @@ void ClearMemoryManager::clearMemory()
                                 INFOLOG("delete file:",file);
                                 if(remove(entry.path().string().c_str()) != 0)
                                 {
+                                    DEBUGLOG("Failed to delete temp storage file", entry.path().string());
                                     m_removeFileList.push_back(entry.path().string());
                                 }
                             }
@@ -154,9 +163,9 @@ void ClearMemoryManager::clearMemory()
                 }
                 m_uploadingFiles.clear();
             } catch (const fs::filesystem_error& e) {
-                std::cerr << "Filesystem error: " << e.what() << std::endl;
+                INFOLOG( "Filesystem error: ", e.what());
             } catch (const std::exception& e) {
-                std::cerr << "Error: " << e.what() << std::endl;
+                INFOLOG( "Error: " , e.what() );
             }
         }
         INFOLOG("ClearMemoryManager::freeTempStorage Done");

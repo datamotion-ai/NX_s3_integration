@@ -528,6 +528,7 @@ namespace nx_spl
                 ClearMemoryManager::getInstance()->deleteFileFromWriteList(file.fullPath);
                 if(remove(file.fullPath.c_str()) != 0)
                 {
+                    ERRORLOG("Failed to remove file:", file.fullPath.c_str());
                     ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
                 }
             }
@@ -630,6 +631,7 @@ namespace nx_spl
                         ERRORLOG("Failed to upload object",oldUrl,newUrl);
                         if(remove(oldFile.fullPath.c_str()) != 0)
                         {
+                            ERRORLOG("Failed to remove file:", oldFile.fullPath.c_str());
                             ClearMemoryManager::getInstance()->addFileToRemoveList(oldFile.fullPath);
                         }
                         if(ecode)
@@ -1272,7 +1274,10 @@ namespace nx_spl
             if(m_localfile.fullPath.find("info.txt") != std::string::npos)
             {
                 flush();
-                remove(m_localfile.fullPath.c_str());
+                if (remove(m_localfile.fullPath.c_str()) != 0)
+                {
+                    ERRORLOG("Failed to remove file:", m_localfile.fullPath);
+                }
             }
 
             if((m_mode & io::ReadOnly) && (m_localfile.fullPath.find(".nxdb") == std::string::npos) && !m_impl->isFileInUploadList(m_uri))
