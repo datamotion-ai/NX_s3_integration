@@ -50,7 +50,7 @@ void nx_spl::aux::DailyLogger::updateLogFile()
     }
     if (logFileCreated)
     {
-        INFOLOG("============================= NXPlugin ================================");
+        INTERNALLOG("============================= NXPlugin ================================");
         std::string os_name;
         std::string os_version;
         std::string architecture = "x64";
@@ -84,13 +84,13 @@ void nx_spl::aux::DailyLogger::updateLogFile()
         uname(&unameData);
         os_version = unameData.release;
 #endif
-        INFOLOG("============= software_name:", "Wasabi_storage_sdk");
-        INFOLOG("============= software_version:", VERSION);
-        INFOLOG("============= os_name:", os_name);
-        INFOLOG("============= os_version:", os_version);
-        INFOLOG("============= architecture:", architecture);
-        INFOLOG("============= software_localtime:", local_time);
-        INFOLOG("=======================================================================");
+        INTERNALLOG("============= software_name:", "Wasabi_storage_sdk");
+        INTERNALLOG("============= software_version:", VERSION);
+        INTERNALLOG("============= os_name:", os_name);
+        INTERNALLOG("============= os_version:", os_version);
+        INTERNALLOG("============= architecture:", architecture);
+        INTERNALLOG("============= software_localtime:", local_time);
+        INTERNALLOG("=======================================================================");
     }
 }
 

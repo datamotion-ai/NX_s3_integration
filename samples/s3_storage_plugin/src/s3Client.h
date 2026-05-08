@@ -76,6 +76,7 @@ class s3Client : public std::enable_shared_from_this<s3Client>
     mutable std::mutex  m_waitmutex;
     bool m_notification_sent = false;
     int m_minute_count = 12;
+    int m_failed_atempt = 0;
     std::string m_url;
     std::string m_accessKey;
     std::string m_secretKey;

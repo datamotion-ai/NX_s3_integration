@@ -329,7 +329,7 @@ namespace nx_spl
         {
             ERRORLOG("Exception Error:",e.what());
         }
-        return 1;
+        return m_available;
     }
 
     IODevice *STORAGE_METHOD_CALL nx_spl::S3Storage::open(const char *uri, int flags, int *ecode) const
@@ -439,6 +439,7 @@ namespace nx_spl
             uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
             if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
             {
+                DEBUGLOG("local folder full:",localFolderSize);
                 if(spaceFullSet == false)
                 {
                         INFOLOG("local folder full:",localFolderSize);
@@ -458,6 +459,9 @@ namespace nx_spl
             {
                 uint64_t totalSize = m_impl.get()->remoteFolderSize();
                 m_freebucketSize = getTotalSpace(ecode) - totalSize - localFolderSize;
+                DEBUGLOG("TotalSpace:",getTotalSpace(ecode));
+                DEBUGLOG("remoteFolderSize:",totalSize);
+                DEBUGLOG("m_freebucketSize:",m_freebucketSize);
             }
             
             return m_freebucketSize;

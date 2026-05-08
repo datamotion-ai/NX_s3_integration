@@ -78,8 +78,22 @@ bool s3Client::establishS3Connection()
                 }
                 else
                 {
-                    bucketFound = true;
-                    m_storageAvailable = true;
+                    Aws::S3::Model::PutObjectRequest request;
+                    request.SetBucket(m_bucket);
+                    request.SetKey(SYNC_FILE);
+                    auto input_data = Aws::MakeShared<Aws::StringStream>("StringStream");
+                    *input_data << "Test";
+                    request.SetBody(input_data);
+                    Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
+                    if (!outcome.IsSuccess()) 
+                    {
+                        ERRORLOG("Unable to upload file:",m_bucket,SYNC_FILE,outcome.GetError().GetMessage().c_str());
+                    }
+                    else 
+                    {
+                        m_storageAvailable = true;
+                        bucketFound = true;
+                    }
                 }
             }
             else
@@ -165,7 +179,7 @@ bool s3Client::initializeConnection()
             uploadThread = std::thread(&s3Client::fileUploadThread, this);
             spaceThread = std::thread(&s3Client::updateRemoteFolderSize, this);
             m_keepAliveTimer.start(this,&s3Client::keepAliveActivator,ONE_MINUTE);
-            INFOLOG("SuccessFully initialise s3 connection with host: ");
+            INFOLOG("---->SuccessFully initialise s3 connection with host: ", m_url);
             return true;
         }
         else
@@ -895,7 +909,7 @@ void s3Client::fileUploadThread()
             }
             
             std::vector<std::string> fileToUpload = getNextFileToUpload();
-            if(!isAvailable() || fileToUpload.empty())
+            if(fileToUpload.empty())
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(ONE_SECOND));
                 continue;
@@ -991,9 +1005,11 @@ void s3Client::fileUploadThread()
                                 }
                                 {
                                     std::lock_guard<std::mutex> lock(self->m_mutex);
+                                    DEBUGLOG("self->m_workfiles.size:", self->m_workfiles.size(), filename);
                                     self->m_workfiles.erase(std::remove(self->m_workfiles.begin(), self->m_workfiles.end(), filename), self->m_workfiles.end());
+                                    DEBUGLOG("self->m_workfiles.size:", self->m_workfiles.size(), filename);
                                 }
-                                //uploadImpl.reset();
+                                uploadImpl.reset();
                             }
                             catch(const std::exception& e)
                             {
@@ -1013,7 +1029,9 @@ void s3Client::fileUploadThread()
                     removeFileFromUploadList(filename);
                     {
                         std::lock_guard<std::mutex> lock(m_mutex);
+                        DEBUGLOG("m_workfiles.size:", m_workfiles.size(), filename);
                         m_workfiles.erase(std::remove(m_workfiles.begin(), m_workfiles.end(), filename), m_workfiles.end());
+                        DEBUGLOG("m_workfiles.size:", m_workfiles.size(), filename);
                     }
                 }
             }
@@ -1031,7 +1049,7 @@ void s3Client::keepAliveActivator()
     DEBUGLOG("s3Client::keepAliveActivator");
     try
     {
-            std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::mutex> lock(m_mutex);
         if(m_impl.get() != nullptr)
         {
             Aws::S3::Model::PutObjectRequest request;
@@ -1043,15 +1061,31 @@ void s3Client::keepAliveActivator()
             Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
             if (!outcome.IsSuccess()) 
             {
-                ERRORLOG("Unable to upload file:",SYNC_FILE,outcome.GetError().GetMessage().c_str());
-                m_storageAvailable = false;
+                ERRORLOG("Unable to upload file:",m_bucket,SYNC_FILE,outcome.GetError().GetMessage().c_str());
+                m_failed_atempt++;
+                if(m_failed_atempt >= 10) {
+                    INFOLOG("Connection Failed!!", m_bucket);
+                    m_storageAvailable = false;
+                }
+                INFOLOG("Re-Establishing connection!!");
+                Aws::Client::ClientConfiguration clientConfig;
+                clientConfig.scheme = Aws::Http::Scheme::HTTPS;
+                clientConfig.endpointOverride = Aws::String(m_url);
+
+                Aws::Auth::AWSCredentials credentials;
+                credentials.SetAWSAccessKeyId(m_accessKey);
+                credentials.SetAWSSecretKey(m_secretKey);
+                
+                #if defined (_WIN32)
+                    m_impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
+                #else
+                    m_impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
+                #endif
             }
             else 
             {
-                if(m_storageAvailable == false)
-                {
-                    m_storageAvailable = true;
-                }
+                m_failed_atempt = 0;
+                m_storageAvailable = true;
             }
         }
     }
@@ -1145,8 +1179,14 @@ std::vector<std::string> s3Client::getNextFileToUpload()
     try
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        if(m_totalSpaceUpdating || m_workfiles.size() >= ServerManager::getInstance()->getMaxThread())
+        if(!m_storageAvailable) {
+            INFOLOG("Connection Lost storage not awailable!!");
+            return std::vector<std::string>{};
+        }
+        if(m_totalSpaceUpdating 
+            || m_workfiles.size() >= ServerManager::getInstance()->getMaxThread())
         {
+            DEBUGLOG("Uploading is bussy:", m_workfiles.size(), m_totalSpaceUpdating);
             return std::vector<std::string>{};
         }
         std::vector<std::string> fileName;
@@ -1197,7 +1237,7 @@ std::vector<std::string> s3Client::getNextFileToUpload()
                             }
                             for(int i = 0; i < filesArray.size(); i++)
                             {
-                                if(fileName.size() >= (max_upload_thread - current_task_count))
+                                if(m_workfiles.size() >= ServerManager::getInstance()->getMaxThread())
                                     break;
 
                                 if (filesArray[i].isString()) 

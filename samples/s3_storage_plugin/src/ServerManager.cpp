@@ -386,13 +386,13 @@ void ServerManager::registerPlugin()
 
 uint64_t ServerManager::getLocalBufferSize()
 {
-    DEBUGLOG("ServerManager::getLocalBufferSize");
+    DEBUGLOG("ServerManager::getLocalBufferSize", m_local_buffer_size);
     return m_local_buffer_size;
 }
 
 int ServerManager::getMaxThread()
 {
-    DEBUGLOG("ServerManager::getMaxThread");
+    DEBUGLOG("ServerManager::getMaxThread", m_maxThread);
     return m_maxThread;
 }
 
