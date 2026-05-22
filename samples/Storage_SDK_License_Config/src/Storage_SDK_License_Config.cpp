@@ -19,18 +19,18 @@ int main(int argc, char* argv[])
 {
     std::cout << "Start Configuring storage sdk" << std::endl;
 
-    std::string host = "localhost:7001";
+    // std::string host = "localhost:7001";
     int local_buffer_size = 1;
     int log_level = 1;
     int log_max = 3;
     int thread_max = 10;
 
-    std::string tmp;
-    std::cout << "Enter host[default is localhost:7001]: ";
-    std::getline(std::cin, tmp);
+    // std::string tmp;
+    // std::cout << "Enter host[default is localhost:7001]: ";
+    // std::getline(std::cin, tmp);
 
-    if (!tmp.empty())
-    host = tmp;
+    // if (!tmp.empty())
+    // host = tmp;
 
     std::string tmp_buf;
     std::cout << "Enter Local Buffer Size GB[default is 1GB]: ";
@@ -69,7 +69,7 @@ int main(int argc, char* argv[])
     }
 
     Json::Value root;
-    root["host"] = host;
+    // root["host"] = host;
     root["local_buffer"] = local_buffer_size;
     root["log_level"] = log_level;
     root["log_max"] = log_max;

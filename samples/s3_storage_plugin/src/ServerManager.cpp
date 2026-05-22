@@ -82,8 +82,8 @@ bool ServerManager::loadServerCredential()
         }
         else
         {
-            if(root.isMember("host"))
-                m_host = root["host"].asString();
+            // if(root.isMember("host"))
+            //     m_host = root["host"].asString();
             if(root.isMember("pluginRegistered"))
                 m_pluginRegistered = root["pluginRegistered"].asBool();
             if(root.isMember("local_buffer")){
@@ -101,7 +101,7 @@ bool ServerManager::loadServerCredential()
             }
             if(root.isMember("max_parallel_upload"))
                 m_maxThread =  root["max_parallel_upload"].asUInt();
-            ret = !m_host.empty();
+            ret = true;
         }
     }
     return ret;
@@ -401,16 +401,18 @@ void ServerManager::updateLicenseDetail()
         m_serverInitialize = true;
         if(loadServerCredential())
         {
-            if(verifyLicense())
-            {
-                m_licenceAvailable = true;
-                m_timer.setInterval(TEN_MINUTE);
-            }
-            else
-            {
-                m_licenceAvailable = false;
-                m_timer.setInterval(ONE_MINUTE);
-            }
+            m_licenceAvailable = true;
+            m_timer.setInterval(TEN_MINUTE);
+            // if(verifyLicense())
+            // {
+            //     m_licenceAvailable = true;
+            //     m_timer.setInterval(TEN_MINUTE);
+            // }
+            // else
+            // {
+            //     m_licenceAvailable = false;
+            //     m_timer.setInterval(ONE_MINUTE);
+            // }
             if(m_pluginRegistered == false)
                 registerPlugin();
         }
