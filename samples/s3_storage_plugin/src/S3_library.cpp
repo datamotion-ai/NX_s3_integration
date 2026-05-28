@@ -481,7 +481,16 @@ namespace nx_spl
     {
         DEBUGLOG("S3Storage::getCapabilities");
         int ret = 0;
-        uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
+        uintmax_t localFolderSize = 0;
+        try {
+            uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
+        } catch (const std::exception &ex) {
+            ERRORLOG("DMError: Exception in getCapabilities ", ex.what());
+            return ret;
+        } catch (...) {
+            ERRORLOG("DMError: Exception in getCapabilities ");
+            return ret;
+        }
         if(localFolderSize < ServerManager::getInstance()->getLocalBufferSize())
         {
             ret |= cap::WriteFile;

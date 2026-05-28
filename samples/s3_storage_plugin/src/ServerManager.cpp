@@ -413,8 +413,8 @@ void ServerManager::updateLicenseDetail()
             //     m_licenceAvailable = false;
             //     m_timer.setInterval(ONE_MINUTE);
             // }
-            if(m_pluginRegistered == false)
-                registerPlugin();
+            // if(m_pluginRegistered == false)
+            //     registerPlugin();
         }
     }
     catch (...)

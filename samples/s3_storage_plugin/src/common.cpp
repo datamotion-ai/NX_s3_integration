@@ -167,19 +167,49 @@ namespace nx_spl
         #endif
         }
 
-        uintmax_t getFolderSize(const fs::path &folder_path)
+        uintmax_t getFolderSize(const fs::path& folder_path)
         {
+            DEBUGLOG("getFolderSize folder_path", folder_path);
             uintmax_t size = 0;
-            try{
-                for (const auto& entry : fs::recursive_directory_iterator(folder_path)) 
-                {                
-                    size += getFileSize(entry);                
+            try {
+                std::error_code ec;
+                if (!fs::exists(folder_path, ec) || ec)
+                {
+                    ERRORLOG("getFolderSize: path does not exist or error: ", folder_path, ec.message());
+                    return 0;
                 }
-            }catch (const std::exception &ex) {
+
+                fs::recursive_directory_iterator it(folder_path, fs::directory_options::skip_permission_denied, ec);
+                if (ec)
+                {
+                    ERRORLOG("getFolderSize: failed to open iterator: ", ec.message());
+                    return 0;
+                }
+
+                for (; it != fs::recursive_directory_iterator{}; it.increment(ec))
+                {
+                    if (ec)
+                    {
+                        ERRORLOG("getFolderSize: iterator error mid-walk: ", ec.message());
+                        break;  // or continue, depending on your needs
+                    }
+                    if (it->is_regular_file(ec) && !ec)
+                    {
+                        uintmax_t file_size = it->file_size(ec);
+                        if (!ec)
+                            size += file_size;
+                    }
+                    ec.clear();
+                }
+            } catch (const std::exception &ex) {
                 ERRORLOG("DMError: Exception in getFolderSize ", ex.what());
                 throw;
+            } catch (...) {
+                ERRORLOG("DMError: Exception in getFolderSize ");
+                throw;
             }
-            DEBUGLOG("getFolderSize",size);
+
+            DEBUGLOG("getFolderSize", size);
             return size;
         }
 
