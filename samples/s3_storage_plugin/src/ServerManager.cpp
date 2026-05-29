@@ -31,7 +31,7 @@ void ServerManager::deleteInstance()
 
 bool ServerManager::isLicenseAvailable() const
 {
-    DEBUGLOG("ServerManager::isLicenseAvailable");
+    DEBUGLOG("ServerManager::isLicenseAvailable:", m_licenceAvailable);
     return m_licenceAvailable;
 }
 
@@ -42,7 +42,7 @@ bool ServerManager::isServerIntialize() const
 }
 
 ServerManager::ServerManager():
-m_licenceAvailable(false),
+m_licenceAvailable(true),
 m_serverInitialize(false),
 m_pluginRegistered(false),
 m_local_buffer_size(1),
@@ -68,7 +68,6 @@ bool ServerManager::loadServerCredential()
         ERRORLOG("Error opening config file:",LICENSE_CONFIG_FILE);
         m_licenceAvailable = false;
         m_timer.setInterval(ONE_MINUTE);
-        ret = ret;
     }
     else
     {
@@ -78,7 +77,6 @@ bool ServerManager::loadServerCredential()
             ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
             m_licenceAvailable = false;
             m_timer.setInterval(ONE_MINUTE);
-            ret = ret;
         }
         else
         {
