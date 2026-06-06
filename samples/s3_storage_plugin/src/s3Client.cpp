@@ -355,7 +355,7 @@ uint64_t s3Client::getRemoteFileSize(const std::string& uri)
     }
 }
 
-std::vector<std::string> s3Client::getobjectKeys(const char *dirUrl)
+std::vector<std::string> s3Client::getobjectKeys(const char *dirUrl, const std::vector<std::string>& localObjects)
 {
     DEBUGLOG("getobjectKeys",dirUrl);
     try
@@ -396,12 +396,24 @@ std::vector<std::string> s3Client::getobjectKeys(const char *dirUrl)
                 std::string line;
                 std::string folderName;
                 folderName.assign(object.GetPrefix().begin()+dir.size(),object.GetPrefix().end()-1);
+                auto it = std::find_if( localObjects.begin(), localObjects.end(),
+                    [&](const std::string& s)
+                    {
+                        return s.find(folderName) != std::string::npos;
+                    }
+                );
+
+                if (it != localObjects.end())
+                {
+                    INFOLOG("-------->Found: ",folderName);
+                    continue;
+                }
                 line.append(folderName.c_str());
                 line.append(",");
                 line.append(std::to_string(nx_spl::isDir));
                 line.append(",");
                 line.append("0");
-                DEBUGLOG(line);
+                INFOLOG("------------->s3:",line);
                 objectList.push_back(line);
                 line.clear();
             }
@@ -412,6 +424,18 @@ std::vector<std::string> s3Client::getobjectKeys(const char *dirUrl)
                 std::string line;
                 std::string fileName;
                 fileName.assign(object.GetKey().begin()+dir.size(),object.GetKey().end());
+                auto it = std::find_if( localObjects.begin(), localObjects.end(),
+                    [&](const std::string& s)
+                    {
+                        return s.find(fileName) != std::string::npos;
+                    }
+                );
+
+                if (it != localObjects.end())
+                {
+                    INFOLOG("---------->Found: ",fileName);
+                    continue;
+                }
                 line.append(fileName);
                 line.append(",");
                 line.append(std::to_string(nx_spl::isFile));
@@ -428,7 +452,7 @@ std::vector<std::string> s3Client::getobjectKeys(const char *dirUrl)
                 {
                     line.append(std::to_string(response.GetResult().GetContentLength()));
                 }
-                DEBUGLOG(line);
+                INFOLOG("-------------->s3:",line);
                 objectList.push_back(line);
                 line.clear();
             }
@@ -553,7 +577,7 @@ bool s3Client::addFileToUploadInQueue(const char *url)
     try
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(m_bucket + FILE_UPLOAD_JSON);
+        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath("/"+ m_bucket + FILE_UPLOAD_JSON);
         if(!fs::exists(file.fullPath))
         {
             Json::Value root(Json::arrayValue);
@@ -636,6 +660,7 @@ bool s3Client::addFileToUploadInQueue(const char *url)
             {
                 inputFile.close();
                 ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
+                INFOLOG("Delete File:", file.fullPath);
                 remove(file.fullPath.c_str());
                 return false;
             }
@@ -679,7 +704,9 @@ bool s3Client::uploadFile(const char *url, std::string fileName)
                 request.SetKey(url);
                 request.SetBody(inputData);
                 Aws::S3::Model::PutObjectOutcome outcome = m_impl->PutObject(request);
-                //static_cast<Aws::FStream*>(inputData.get())->close();
+                #if defined(_WIN32)
+                    static_cast<Aws::FStream*>(inputData.get())->close();
+                #endif
                 if (!outcome.IsSuccess()) 
                 {
                     ERRORLOG("Unable to upload file:",url,outcome.GetError().GetMessage().c_str());
@@ -689,7 +716,9 @@ bool s3Client::uploadFile(const char *url, std::string fileName)
                     INFOLOG("Successfully uploaded file:",fileName,url,m_bucket);
                     ret = true;
                 }
-                inputData.reset();
+                #if defined(__linux__)
+                    inputData.reset();
+                #endif
             }
         }
         else
@@ -804,7 +833,7 @@ bool s3Client::isFileInUploadList(std::string fileName) const
     {
         std::lock_guard<std::mutex> lock(m_mutex);
         bool ret = false;
-        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(m_bucket + FILE_UPLOAD_JSON);
+        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath("/"+ m_bucket + FILE_UPLOAD_JSON);
         std::ifstream inputFile(file.fullPath);
         if (inputFile.is_open())
         {
@@ -918,12 +947,12 @@ void s3Client::fileUploadThread()
             for(const std::string& filename : fileToUpload)
             {
                 std::string url = filename;
-                size_t last_underscore_pos = url.find_last_of('_');
-                if (last_underscore_pos != std::string::npos) 
-                {
-                    url = url.substr(0, last_underscore_pos);
-                    url.append(".mkv");
-                }
+                // size_t last_underscore_pos = url.find_last_of('_');
+                // if (last_underscore_pos != std::string::npos) 
+                // {
+                //     url = url.substr(0, last_underscore_pos);
+                //     url.append(".mkv");
+                // }
                 nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(std::string(url));
                 
                 if(fs::exists(file.fullPath))
@@ -990,6 +1019,7 @@ void s3Client::fileUploadThread()
                                                 std::lock_guard<std::mutex> lock(self->m_mutex);
                                                 self->m_space += size;
                                             }
+                                            INFOLOG("Delete File:", file.fullPath);
                                             if (remove(file.fullPath.c_str()) != 0) 
                                             {
                                                 ERRORLOG("Failed to remove file:",file.fullPath.c_str());
@@ -1062,11 +1092,11 @@ void s3Client::keepAliveActivator()
             if (!outcome.IsSuccess()) 
             {
                 ERRORLOG("Unable to upload file:",m_bucket,SYNC_FILE,outcome.GetError().GetMessage().c_str());
-                m_failed_atempt++;
-                if(m_failed_atempt >= 10) {
+                // m_failed_atempt++;
+                // if(m_failed_atempt >= 10) {
                     INFOLOG("Connection Failed!!", m_bucket);
                     m_storageAvailable = false;
-                }
+                // }
                 INFOLOG("Re-Establishing connection!!");
                 Aws::Client::ClientConfiguration clientConfig;
                 clientConfig.scheme = Aws::Http::Scheme::HTTPS;
@@ -1084,7 +1114,7 @@ void s3Client::keepAliveActivator()
             }
             else 
             {
-                m_failed_atempt = 0;
+                // m_failed_atempt = 0;
                 m_storageAvailable = true;
             }
         }
@@ -1190,7 +1220,7 @@ std::vector<std::string> s3Client::getNextFileToUpload()
             return std::vector<std::string>{};
         }
         std::vector<std::string> fileName;
-        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(m_bucket + FILE_UPLOAD_JSON);
+        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath("/"+ m_bucket + FILE_UPLOAD_JSON);
         std::ifstream inputFile(file.fullPath);
         if (inputFile.is_open())
         {
@@ -1280,7 +1310,7 @@ void s3Client::removeFileFromUploadList(std::string fileName)
     try
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath(m_bucket + FILE_UPLOAD_JSON);
+        nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath("/"+ m_bucket + FILE_UPLOAD_JSON);
         std::ifstream inputFile(file.fullPath);
         if (inputFile.is_open())
         {

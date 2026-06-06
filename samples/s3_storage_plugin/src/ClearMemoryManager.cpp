@@ -24,8 +24,8 @@ void ClearMemoryManager::deleteInstance()
 
 void ClearMemoryManager::addFileToRemoveList(std::string strFile)
 {
-    std::lock_guard<std::mutex> lock(m_mutex);
     DEBUGLOG("ClearMemoryManager::addFileToRemoveList");
+    std::lock_guard<std::mutex> lock(m_mutex);
     auto it = std::find(m_writeFileList.begin(), m_writeFileList.end(), strFile);
     if (it == m_writeFileList.end()) 
     {
@@ -77,6 +77,7 @@ void ClearMemoryManager::deleteFileFromWriteList(std::string strFile)
 ClearMemoryManager::ClearMemoryManager(): m_folderCleaned(false)
 {
     DEBUGLOG("ClearMemoryManager::ClearMemoryManager");
+    freeTempStorage();
     m_timer.start(this,&ClearMemoryManager::clearMemory,ONE_MINUTE);
 }
 
@@ -90,15 +91,16 @@ ClearMemoryManager::~ClearMemoryManager()
 void ClearMemoryManager::clearMemory()
 {
     INFOLOG("ClearMemoryManager::clearMemory");
-    if(m_folderCleaned == false)
-    {
-        freeTempStorage();
-        m_folderCleaned = true;
-    }
+    // if(m_folderCleaned == false)
+    // {
+    //     freeTempStorage();
+    //     m_folderCleaned = true;
+    // }
     while(!m_removeFileList.empty())
     {
         try {
             std::string filename = m_removeFileList.back();
+            INFOLOG("Delete File:", filename);
             if (fs::exists(filename.c_str()) && (remove(filename.c_str()) != 0))
             {
                 ERRORLOG("Failed to remove file:", filename.c_str());
@@ -143,9 +145,7 @@ void ClearMemoryManager::clearMemory()
                     if (fs::is_regular_file(entry)) 
                     {
                         const std::string file(entry.path().filename().string());
-                        if ((file.find("UploadList.json") == std::string::npos) 
-                            && (file.find("info.txt") == std::string::npos)
-                            && (file.find(".nxdb") == std::string::npos))
+                        if ((file.find(".mkv") != std::string::npos))
                         {
                             INFOLOG("file:",file);
                             auto it = std::find(m_uploadingFiles.begin(), m_uploadingFiles.end(), file);
@@ -154,7 +154,7 @@ void ClearMemoryManager::clearMemory()
                                 INFOLOG("delete file:",file);
                                 if(remove(entry.path().string().c_str()) != 0)
                                 {
-                                    DEBUGLOG("Failed to delete temp storage file", entry.path().string());
+                                    ERRORLOG("Failed to delete temp storage file", entry.path().string());
                                     m_removeFileList.push_back(entry.path().string());
                                 }
                             }
@@ -193,13 +193,13 @@ void ClearMemoryManager::clearMemory()
                                 for (auto& file : filesArray)
                                 {
                                     std::string url = file.asString();
-                                    size_t last_underscore_pos = url.find_last_of('_');
-                                    if (last_underscore_pos != std::string::npos) 
-                                    {
-                                        url = url.substr(0, last_underscore_pos);
-                                        url.append(".mkv");
-                                    }
-                                    nx_spl::aux::FileNameAndPath file_name = nx_spl::aux::localUniqueFilePath(std::string(url));
+                                    // size_t last_underscore_pos = url.find_last_of('_');
+                                    // if (last_underscore_pos != std::string::npos) 
+                                    // {
+                                    //     url = url.substr(0, last_underscore_pos);
+                                    //     url.append(".mkv");
+                                    // }
+                                    nx_spl::aux::FileNameAndPath file_name = nx_spl::aux::localUniqueFilePath(url);
                                     if(fs::exists(file_name.fullPath))
                                     {
                                         DEBUGLOG("m_uploadingFiles:",file_name.name);

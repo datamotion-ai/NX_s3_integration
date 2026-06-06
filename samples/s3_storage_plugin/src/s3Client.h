@@ -45,7 +45,7 @@ class s3Client : public std::enable_shared_from_this<s3Client>
     bool remoteDirExists(const std::string& uri);
     uint64_t remoteFolderSize(bool update = false);
     uint64_t getRemoteFileSize(const std::string& uri);
-    std::vector<std::string> getobjectKeys(const char *dirUrl);
+    std::vector<std::string> getobjectKeys(const char *dirUrl, const std::vector<std::string>& localObjects);
     bool renameFile(const char *oldUrl, const char *newUrl);
     bool removeUrl(const char *url);
     bool addFileToUploadInQueue(const char *url);

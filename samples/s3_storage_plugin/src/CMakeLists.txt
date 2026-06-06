@@ -34,7 +34,7 @@ target_include_directories(s3_storage_plugin PRIVATE
     ../../../src #< SDK headers.
     ${AWSSDK_INCLUDE_DIRS}
     ../../../lib/jsoncpp/include
-    E:/vcpkg-master/installed/x64-windows-static/include)
+    C:/Users/brija/wasabi/vcpkg-master/installed/x64-windows-static/include)
     
 if(WIN32)
     set(API_IMPORT_MACRO "__declspec(dllimport)")
@@ -72,8 +72,8 @@ endif()
 if(WINDOWS_BUILD)
     list(FIND AWSSDK_CLIENT_LIBS "curl" CONTAINS_CURL)
     if (CONTAINS_CURL EQUAL 0)
-        set(CURL_INCLUDE "E:/vcpkg-master/packages/curl_x64-windows-static/include") # Update this with correct curl install location.
-        set(CURL_LIB "E:/vcpkg-master/packages/curl_x64-windows-static/lib") # Update this with correct  curl install location.
+        set(CURL_INCLUDE "C:/Users/brija/wasabi/vcpkg-master/packages/curl_x64-windows-static/include") # Update this with correct curl install location.
+        set(CURL_LIB "C:/Users/brija/wasabi/vcpkg-master/packages/curl_x64-windows-static/lib") # Update this with correct  curl install location.
     endif()
 endif()
 

@@ -138,19 +138,19 @@ void ThreadPool::adjustWorkerThreads()
         {
             addWorker();
         }
-        else if (queueSize == 0 && threadCount > minThreads ) 
+        else if ((queueSize == 0) && (threadCount > minThreads) ) 
         {
             std::thread threadToJoin;
             {
                 std::lock_guard<std::mutex> lock(workersMutex);
-                DEBUGLOG("detaching worker threads!!", workers.size());
+                INFOLOG("detaching worker threads!!", workers.size());
                 stopFlags.back()->store(true);
                 condition.notify_all();
 
                 threadToJoin = std::move(workers.back());
                 workers.pop_back();
                 stopFlags.pop_back();
-                DEBUGLOG("detached worker threads!!", workers.size());
+                INFOLOG("detached worker threads!!", workers.size());
             }
             if (threadToJoin.joinable())
                 threadToJoin.join();

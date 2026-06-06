@@ -33,7 +33,6 @@ namespace nx_spl
         m_options.loggingOptions.logLevel = Aws::Utils::Logging::LogLevel::Fatal;
         Aws::InitAPI(m_options);
         std::srand((unsigned int) time(0));
-        ClearMemoryManager::getInstance();
     }
 
     nx_spl::S3StorageFactory::~S3StorageFactory()
@@ -193,13 +192,13 @@ namespace nx_spl
     m_freebucketSize(S3_DEFAULT_TOTAL_SPACE),
     m_totalSpace(S3_DEFAULT_TOTAL_SPACE)
     {
-        DEBUGLOG("S3Storage::S3Storage");
+        INFOLOG("S3Storage::S3Storage", url);
         aux::Url u;
         try
         {
             std::string tmp_url = url;
             std::string prefix = "@https//";
-            size_t pos = url.find(prefix);
+            size_t pos = tmp_url.find(prefix);
             if (pos != std::string::npos) {
                 tmp_url.erase(pos+1, prefix.length()-1);
             }
@@ -234,7 +233,7 @@ namespace nx_spl
         if((m_impl.get() != nullptr) && m_impl.get()->establishS3Connection())
         {
             INFOLOG("=====================>");
-            m_available = true;
+            // m_available = true;
             m_totalSpace = S3_DEFAULT_TOTAL_SPACE;
             std::ifstream jsonFile(S3_CONFIG_FILE);
             if (!jsonFile.is_open()) 
@@ -269,7 +268,7 @@ namespace nx_spl
                         }
                         if(storageFound == false)
                         {
-                            INFOLOG("Storage not found",u.host,u.path);
+                            INFOLOG("Storage configuration not found",u.host,u.path);
                         }
                     }
                     else
@@ -336,19 +335,24 @@ namespace nx_spl
     {
         INFOLOG("S3Storage::open",uri,flags);
         if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
-            return nullptr;
+        return nullptr;
         IODevice *ret = nullptr;
+        std::string filePath(uri);
         try
         {
             std::lock_guard<std::mutex> lock(m_mutex);
-            std::string filePath(uri);
             aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
 
-            if((file.fullPath.find(".mkv") == std::string::npos) && 
-            !fs::exists(file.fullPath.c_str()) && 
-            (m_impl.get() != nullptr))
+            if((file.fullPath.find(".mkv") == std::string::npos) 
+                && !fs::exists(file.fullPath.c_str())
+                && (m_impl.get() != nullptr))
             {
-                m_impl.get()->downloadFile(uri,file.fullPath);
+                if (!fs::exists(file.folderPath))
+                {
+                    INFOLOG("Creating folder:", file.folderPath);
+                    fs::create_directories(file.folderPath); // creates all missing parent directories
+                }
+                m_impl.get()->downloadFile(filePath.c_str(),file.fullPath);
             }
             
             if(filePath.find(".mkv") != std::string::npos)
@@ -359,24 +363,29 @@ namespace nx_spl
                     if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
                     {
                         INFOLOG("Local Folder is full!! No space available.");
-                        *ecode = error::NotEnoughSpace;
+                        *ecode = error::WriteNotSupported;
                         return ret;
+                    }
+                    if (!fs::exists(file.folderPath))
+                    {
+                        INFOLOG("Creating folder:", file.folderPath);
+                        fs::create_directories(file.folderPath); // creates all missing parent directories
                     }
                 }
                 else if(flags & io::ReadOnly)
                 {
-                    size_t last_slase_pos = filePath.find_last_of('/');
-                    if (last_slase_pos != std::string::npos) 
-                    {
-                        std::string tempFileName = filePath.substr(last_slase_pos+1, filePath.length());
-                        size_t last_underscore_pos = tempFileName.find_last_of('_');
-                        if (last_underscore_pos != std::string::npos) 
-                        {
-                            last_underscore_pos = filePath.find_last_of('_');
-                            filePath = filePath.substr(0, last_underscore_pos);
-                            filePath.append(".mkv");
-                        }
-                    }
+                    // size_t last_slase_pos = filePath.find_last_of('/');
+                    // if (last_slase_pos != std::string::npos) 
+                    // {
+                    //     std::string tempFileName = filePath.substr(last_slase_pos+1, filePath.length());
+                    //     size_t last_underscore_pos = tempFileName.find_last_of('_');
+                    //     if (last_underscore_pos != std::string::npos) 
+                    //     {
+                    //         last_underscore_pos = filePath.find_last_of('_');
+                    //         filePath = filePath.substr(0, last_underscore_pos);
+                    //         filePath.append(".mkv");
+                    //     }
+                    // }
 
                     aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
                     if(!fs::exists(file.fullPath))
@@ -388,7 +397,7 @@ namespace nx_spl
                 }
             }
 
-            S3IODevice *temp_ptr = new S3IODevice( uri, flags,m_impl);
+            S3IODevice *temp_ptr = new S3IODevice( filePath.c_str(), flags,m_impl);
             if(temp_ptr != nullptr)
             {
                 if(temp_ptr->intialise())
@@ -409,14 +418,14 @@ namespace nx_spl
         }
         catch(std::exception &e)
         {
-            ERRORLOG("Exception Error:",uri,flags,e.what());
+            ERRORLOG("Exception Error:",filePath,flags,e.what());
             if(ecode)
                 *ecode = error::UrlNotExists;
             return nullptr;
         }
         catch (...)
         {
-            ERRORLOG("Unknown error",uri,flags);
+            ERRORLOG("Unknown error",filePath,flags);
             if(ecode)
                 *ecode = error::UrlNotExists;
             return nullptr;
@@ -442,8 +451,8 @@ namespace nx_spl
                 DEBUGLOG("local folder full:",localFolderSize);
                 if(spaceFullSet == false)
                 {
-                        INFOLOG("local folder full:",localFolderSize);
-                        spaceFullSet = true;
+                    INFOLOG("local folder full:",localFolderSize);
+                    spaceFullSet = true;
                 }
                 return 0;
             }
@@ -494,76 +503,73 @@ namespace nx_spl
         ret |= cap::ReadFile;
         ret |= cap::ListFile;
         ret |= cap::RemoveFile;
-        ret |= cap::DBReady;
         return ret;
     }
 
     void STORAGE_METHOD_CALL nx_spl::S3Storage::removeFile(const char *url, int *ecode)
     {
         INFOLOG("S3Storage::removeFile",url);
+        std::string filePath(url);
         try
         {
             std::lock_guard<std::mutex> lock(m_mutex);
             if(ecode)
                 *ecode = error::NoError;
 
-            std::string filePath(url);
 
-            if(filePath.find(".mkv") != std::string::npos)
-            {
-                size_t last_slase_pos = filePath.find_last_of('/');
-                if (last_slase_pos != std::string::npos) 
-                {
-                    std::string tempFileName = filePath.substr(last_slase_pos+1, filePath.length());
-                    size_t last_underscore_pos = tempFileName.find_last_of('_');
-                    if (last_underscore_pos != std::string::npos) 
-                    {
-                        last_underscore_pos = filePath.find_last_of('_');
-                        filePath = filePath.substr(0, last_underscore_pos);
-                        filePath.append(".mkv");
-                    }
-                }
-            }
+            // if(filePath.find(".mkv") != std::string::npos)
+            // {
+            //     size_t last_slase_pos = filePath.find_last_of('/');
+            //     if (last_slase_pos != std::string::npos) 
+            //     {
+            //         std::string tempFileName = filePath.substr(last_slase_pos+1, filePath.length());
+            //         size_t last_underscore_pos = tempFileName.find_last_of('_');
+            //         if (last_underscore_pos != std::string::npos) 
+            //         {
+            //             last_underscore_pos = filePath.find_last_of('_');
+            //             filePath = filePath.substr(0, last_underscore_pos);
+            //             filePath.append(".mkv");
+            //         }
+            //     }
+            // }
 
             aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
 
             if(fs::exists(file.fullPath.c_str()))
             {
                 ClearMemoryManager::getInstance()->deleteFileFromWriteList(file.fullPath);
+                INFOLOG("Delete File:", file.fullPath);
                 if(remove(file.fullPath.c_str()) != 0)
                 {
                     ERRORLOG("Failed to remove file:", file.fullPath.c_str());
                     ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
                 }
             }
-            else
+            if(m_impl.get() != nullptr)
             {
-                if(m_impl.get() != nullptr)
+                if(m_impl.get()->remoteUriExists(filePath))
                 {
-                    if(m_impl.get()->remoteUriExists(url))
-                    {
-                        uint64_t size = m_impl.get()->getRemoteFileSize(url);
+                    // uint64_t size = m_impl.get()->getRemoteFileSize(filePath);
 
-                        if (!m_impl.get()->removeUrl(url)) 
-                        {
-                            ERRORLOG("Failed to delete file",url);
-                            if(ecode)
-                                *ecode = error::UnknownError;
-                        }
-                        else 
-                        {
-                            if(ecode)
-                                *ecode = error::NoError;
-                            INFOLOG("file deleted",url);
-                        }
+                    if (!m_impl.get()->removeUrl(filePath.c_str())) 
+                    {
+                        ERRORLOG("Failed to delete file",filePath);
+                        if(ecode)
+                            *ecode = error::UnknownError;
+                    }
+                    else 
+                    {
+                        if(ecode)
+                            *ecode = error::NoError;
+                        INFOLOG("file deleted",filePath);
                     }
                 }
-                else
-                {
-                    ERRORLOG("implPtrType is nullptr!!");
-                    if(ecode)
-                        *ecode = error::UnknownError;
-                }
+            }
+            else
+            {
+                ERRORLOG("implPtrType is nullptr!!");
+                if(ecode)
+                    *ecode = error::UnknownError;
             }
         }
         catch(const std::exception& e)
@@ -577,46 +583,15 @@ namespace nx_spl
     void STORAGE_METHOD_CALL nx_spl::S3Storage::removeDir(const char *url, int *ecode)
     {
         DEBUGLOG("S3Storage::removeDir",url);
-        try
-        {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
-                return;
-            
-            if(m_impl.get() != nullptr)
-            {
-                if (!m_impl.get()->removeUrl(url)) 
-                {
-                    ERRORLOG("Failed to delete directory",url);
-                    if(ecode)
-                        *ecode = error::UnknownError;
-                }
-                else 
-                {
-                    if(ecode)
-                        *ecode = error::NoError;
-                    m_impl.get()->remoteFolderSize(true);
-                    INFOLOG("deleted directory",url);
-                }
-            }
-            else
-            {
-                ERRORLOG("implPtrType is nullptr!");
-                if(ecode)
-                    *ecode = error::UnknownError;
-            }
-        }
-        catch(const std::exception& e)
-        {
-            ERRORLOG("Exception Error:",e.what());
-            if(ecode)
-                *ecode = error::UnknownError;
-        }
+        if(ecode)
+            *ecode = error::UnknownError;
     }
 
     void STORAGE_METHOD_CALL nx_spl::S3Storage::renameFile(const char *oldUrl, const char *newUrl, int *ecode)
     {
         INFOLOG("S3Storage::renameFile",oldUrl,newUrl);
+        std::string oldFileUrl = oldUrl;
+        std::string newFileUrl = newUrl;
         try
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -625,18 +600,21 @@ namespace nx_spl
             
             if(m_impl.get() != nullptr)
             {
-                aux::FileNameAndPath oldFile = aux::localUniqueFilePath(std::string(oldUrl));
+                aux::FileNameAndPath oldFile = aux::localUniqueFilePath(std::string(oldFileUrl));
+                aux::FileNameAndPath newFile = aux::localUniqueFilePath(std::string(newUrl));
 
                 if(fs::exists(oldFile.fullPath.c_str()))
                 {
+                    fs::rename(oldFile.fullPath, newFile.fullPath);
                     ClearMemoryManager::getInstance()->deleteFileFromWriteList(oldFile.fullPath);
-                    if (!m_impl.get()->addFileToUploadInQueue(newUrl)) 
+                    if (!m_impl.get()->addFileToUploadInQueue(newFileUrl.c_str())) 
                     {
-                        ERRORLOG("Failed to upload object",oldUrl,newUrl);
-                        if(remove(oldFile.fullPath.c_str()) != 0)
+                        ERRORLOG("Failed to upload object, deleting the object",oldFileUrl,newFileUrl);
+                        INFOLOG("Delete File:", newFile.fullPath);
+                        if(remove(newFile.fullPath.c_str()) != 0)
                         {
-                            ERRORLOG("Failed to remove file:", oldFile.fullPath.c_str());
-                            ClearMemoryManager::getInstance()->addFileToRemoveList(oldFile.fullPath);
+                            ERRORLOG("Failed to remove file:", newFile.fullPath.c_str());
+                            ClearMemoryManager::getInstance()->addFileToRemoveList(newFile.fullPath);
                         }
                         if(ecode)
                             *ecode = error::UrlNotExists;
@@ -664,7 +642,7 @@ namespace nx_spl
         }
         catch(const std::exception& e)
         {
-            ERRORLOG("Exception Error:",e.what());
+            ERRORLOG("Exception Error:",e.what(),oldFileUrl,newFileUrl);
             if(ecode)
                 *ecode = error::UnknownError;
         }
@@ -672,7 +650,8 @@ namespace nx_spl
 
     FileInfoIterator *STORAGE_METHOD_CALL nx_spl::S3Storage::getFileIterator(const char *dirUrl, int *ecode) const
     {
-        DEBUGLOG("S3Storage::getFileIterator",dirUrl);
+        INFOLOG("----------------->",dirUrl);
+        std::string dirPath = dirUrl;
         try
         {
             std::lock_guard<std::mutex> lock(m_mutex);
@@ -682,14 +661,69 @@ namespace nx_spl
             if(m_impl.get() == nullptr)
             {
                 ERRORLOG("implPtrType is nullptr");
+                if(ecode)
+                    *ecode = error::UnknownError;
                 return nullptr;
             }
 
-            std::vector<std::string> objects = m_impl.get()->getobjectKeys(dirUrl); 
-
-            if(!objects.empty())
+            if(!dirPath.empty() && dirPath.back() == '/')
             {
-                return new S3FileInfoIterator(std::move(objects),dirUrl);
+                dirPath.pop_back();
+            }
+
+            if(dirPath.empty())
+            {
+                ERRORLOG("dirPath is empty!!");
+                if(ecode)
+                    *ecode = error::UnknownError;
+                return nullptr;
+            }
+
+            std::vector<std::string> localObjects;
+            std::string dir = nx_spl::aux::localUniqueFolder() + dirPath;
+            std::vector<std::string> objects;
+            if (fs::exists(dir) && fs::is_directory(dir))
+            {
+                for (const auto& entry : fs::directory_iterator(dir))
+                {
+                    std::string line;
+                    if (entry.is_regular_file())
+                    {
+                        std::string fileName = entry.path().filename().string();
+                        line.append(fileName);
+                        objects.push_back(fileName);
+                        line.append(",");
+                        line.append(std::to_string(nx_spl::isFile));
+                        line.append(",");
+                        line.append(std::to_string(entry.file_size()));
+                        INFOLOG("----------->Local:",line);
+                        localObjects.push_back(line);
+                    }
+                    else if (entry.is_directory())
+                    {
+                        std::string dirName = entry.path().filename().string();
+                        line.append(dirName);
+                        objects.push_back(dirName);
+                        line.append(",");
+                        line.append(std::to_string(nx_spl::isDir));
+                        line.append(",");
+                        line.append("0");
+                        INFOLOG("------------>Local:",line);
+                        localObjects.push_back(line);
+                    }
+                }
+            }
+
+            std::vector<std::string> s3Objects = m_impl.get()->getobjectKeys(dirPath.c_str(), objects);
+            localObjects.insert(
+                localObjects.end(),
+                std::make_move_iterator(s3Objects.begin()),
+                std::make_move_iterator(s3Objects.end())
+            );
+
+            if(!localObjects.empty())
+            {
+                return new S3FileInfoIterator(std::move(localObjects),dirPath);
             }
         }
         catch(const std::exception& e)
@@ -715,32 +749,39 @@ namespace nx_spl
             {
                 std::string filePath(url);
 
-                if(filePath.find(".mkv") != std::string::npos)
-                {
-                    size_t last_slase_pos = filePath.find_last_of('/');
-                    if (last_slase_pos != std::string::npos) 
-                    {
-                        std::string tempFileName = filePath.substr(last_slase_pos+1, filePath.length());
-                        size_t last_underscore_pos = tempFileName.find_last_of('_');
-                        if (last_underscore_pos != std::string::npos) 
-                        {
-                            last_underscore_pos = filePath.find_last_of('_');
-                            filePath = filePath.substr(0, last_underscore_pos);
-                            filePath.append(".mkv");
-                        }
-                    }
-                }
+                // if(filePath.find(".mkv") != std::string::npos)
+                // {
+                //     size_t last_slase_pos = filePath.find_last_of('/');
+                //     if (last_slase_pos != std::string::npos) 
+                //     {
+                //         std::string tempFileName = filePath.substr(last_slase_pos+1, filePath.length());
+                //         size_t last_underscore_pos = tempFileName.find_last_of('_');
+                //         if (last_underscore_pos != std::string::npos) 
+                //         {
+                //             last_underscore_pos = filePath.find_last_of('_');
+                //             filePath = filePath.substr(0, last_underscore_pos);
+                //             filePath.append(".mkv");
+                //         }
+                //     }
+                // }
 
                 aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
                 if(fs::exists(file.fullPath))
                 {
-                    INFOLOG("File already downloaded into local storage",file.fullPath);
-                    ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
+                    INFOLOG("File already into local storage",file.fullPath);
+                    if((m_impl.get() != nullptr) && (!m_impl.get()->isFileInUploadList(filePath))) {
+                        ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
+                    }
                     return 1;
                 }
                 else
                 {
-                    if (!m_impl.get()->downloadFile(url,file.fullPath)) 
+                    if (!fs::exists(file.folderPath))
+                    {
+                        INFOLOG("Creating folder:", file.folderPath);
+                        fs::create_directories(file.folderPath); // creates all missing parent directories
+                    }
+                    if (!m_impl.get()->downloadFile(filePath.c_str(),file.fullPath)) 
                     {
                         ERRORLOG("file not found:",file.fullPath);
                         *ecode = error::UrlNotExists;
@@ -824,11 +865,18 @@ namespace nx_spl
             if(fs::exists(file.fullPath.c_str()))
             {
                 size = aux::getFileSize(file.fullPath.c_str());
-                DEBUGLOG("fileSize:",url,size);
+                DEBUGLOG("fileSize:",filePath,size);
+            }
+            else if((m_impl.get() != nullptr) && m_impl.get()->isAvailable())
+            {
+                size = m_impl.get()->getRemoteFileSize(filePath);
+                DEBUGLOG("fileSize:",filePath,size);
             }
             else
             {
-                INFOLOG("File do not exist",url);
+                INFOLOG("File do not exist",filePath);
+                if(ecode)
+                    *ecode = error::UnknownError;
             }
             return size;
         }
@@ -949,21 +997,21 @@ namespace nx_spl
             else if(m_mode & io::ReadOnly)
             {
                 std::string file = m_uri;
-                if((file.find(".nxdb") == std::string::npos) && (file.find("info.txt") == std::string::npos) )
-                {
-                    size_t last_slase_pos = file.find_last_of('/');
-                    if (last_slase_pos != std::string::npos) 
-                    {
-                        std::string tempFileName = file.substr(last_slase_pos+1, file.length());
-                        size_t last_underscore_pos = tempFileName.find_last_of('_');
-                        if (last_underscore_pos != std::string::npos) 
-                        {
-                            last_underscore_pos = file.find_last_of('_');
-                            file = file.substr(0, last_underscore_pos);
-                            file.append(".mkv");
-                        }
-                    }
-                }
+                // if((file.find(".nxdb") == std::string::npos) && (file.find("info.txt") == std::string::npos) )
+                // {
+                //     size_t last_slase_pos = file.find_last_of('/');
+                //     if (last_slase_pos != std::string::npos) 
+                //     {
+                //         std::string tempFileName = file.substr(last_slase_pos+1, file.length());
+                //         size_t last_underscore_pos = tempFileName.find_last_of('_');
+                //         if (last_underscore_pos != std::string::npos) 
+                //         {
+                //             last_underscore_pos = file.find_last_of('_');
+                //             file = file.substr(0, last_underscore_pos);
+                //             file.append(".mkv");
+                //         }
+                //     }
+                // }
                 m_localfile = aux::localUniqueFilePath( file);
                 if ((m_localsize = aux::getFileSize(m_localfile.fullPath.c_str())) <= 0)
                 {
@@ -981,14 +1029,16 @@ namespace nx_spl
             if(m_file == NULL)
             {
                 ERRORLOG("Failed to open local file!!",m_localfile.fullPath);
-                if(!m_impl->isFileInUploadList(m_uri))
+                if((m_impl.get() != nullptr) && (!m_impl.get()->isFileInUploadList(m_uri))) {
                     ClearMemoryManager::getInstance()->addFileToRemoveList(m_localfile.fullPath);
+                }
             }
             else 
             {
                 ret = true;
-                if(m_mode & io::WriteOnly)
-                ClearMemoryManager::getInstance()->addFileToWriteList(m_localfile.fullPath);
+                if(m_mode & io::WriteOnly) {
+                    ClearMemoryManager::getInstance()->addFileToWriteList(m_localfile.fullPath);
+                }
             }
         }
         catch(const std::exception& e)
@@ -1275,16 +1325,22 @@ namespace nx_spl
 
             m_file = NULL;
 
-            if(m_localfile.fullPath.find("info.txt") != std::string::npos)
+            if(m_localfile.fullPath.find(".mkv") == std::string::npos)
             {
                 flush();
-                if (remove(m_localfile.fullPath.c_str()) != 0)
+                if(m_localfile.fullPath.find(".nxdb") == std::string::npos)
                 {
-                    ERRORLOG("Failed to remove file:", m_localfile.fullPath);
+                    INFOLOG("Delete File:", m_localfile.fullPath);
+                    if (remove(m_localfile.fullPath.c_str()) != 0)
+                    {
+                        ERRORLOG("Failed to remove file:", m_localfile.fullPath);
+                    }
                 }
             }
 
-            if((m_mode & io::ReadOnly) && (m_localfile.fullPath.find(".nxdb") == std::string::npos) && !m_impl->isFileInUploadList(m_uri))
+            if((m_mode & io::ReadOnly) 
+                && (m_localfile.fullPath.find(".nxdb") == std::string::npos) 
+                && !m_impl->isFileInUploadList(m_uri))
             {
                 if (fs::exists(m_localfile.fullPath.c_str())) 
                 {
@@ -1300,9 +1356,10 @@ namespace nx_spl
 
     S3FileInfoIterator::S3FileInfoIterator(FileListType &&fileList, const std::string &baseDir):
     m_fileList(std::move(fileList)),
-    m_curFile(m_fileList.cbegin())
+    m_curFile(m_fileList.cbegin()),
+    m_baseDir(baseDir)
     {
-        DEBUGLOG("S3FileInfoIterator::S3FileInfoIterator");
+        INFOLOG("------>S3FileInfoIterator::S3FileInfoIterator",m_baseDir);
     }
 
     FileInfo *STORAGE_METHOD_CALL S3FileInfoIterator::next(int *ecode) const
@@ -1315,7 +1372,7 @@ namespace nx_spl
 
             if (m_curFile != m_fileList.cend())
             {
-                std::string line = m_curFile->c_str();
+                const std::string line = m_curFile->c_str();
                 DEBUGLOG("S3FileInfoIterator::next:",line);
                 ++m_curFile;
                 std::stringstream ss(line);
@@ -1327,7 +1384,7 @@ namespace nx_spl
                 }  
                 if(substrings.size() == 3)
                 {
-                    m_fileInfo.url = substrings.at(0).c_str();
+                    m_fileInfo.url = std::string(m_baseDir + "/" + substrings.at(0)).c_str();
                     if(std::stoi(substrings.at(1)) == 0)
                     {
                         m_fileInfo.type = isFile;
@@ -1337,7 +1394,7 @@ namespace nx_spl
                         m_fileInfo.type = isDir;
                     }
                     m_fileInfo.size = std::stoi(substrings.at(2));
-                    DEBUGLOG("----------------->",m_fileInfo.url);
+                    INFOLOG("----------------->",m_fileInfo.url, m_fileInfo.type, m_fileInfo.size);
                     substrings.clear();
                     return &m_fileInfo;
                 } 
@@ -1416,7 +1473,7 @@ namespace nx_spl
 
     nx_spl::S3FileInfoIterator::~S3FileInfoIterator()
     {
-        DEBUGLOG("S3FileInfoIterator::~S3FileInfoIterator");
+        INFOLOG("--------->S3FileInfoIterator::~S3FileInfoIterator", m_baseDir);
     }
 }
 
@@ -1427,6 +1484,7 @@ extern "C"
         nx_spl::aux::DailyLogger::Initialize();
         INFOLOG("======================================create  NXPlugin Instance================================");
         ServerManager::getInstance();
+        ClearMemoryManager::getInstance();
         return new nx_spl::S3StorageFactory();
     }
 }

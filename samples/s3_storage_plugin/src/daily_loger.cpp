@@ -167,6 +167,7 @@ void nx_spl::aux::DailyLogger::deleteOldLogFiles()
 
     while (logFiles.size() > m_maxLogFiles) 
     {
+        INFOLOG("Delete File:", logFiles.front());
         fs::remove(logFiles.front());
         logFiles.erase(logFiles.begin());
     }

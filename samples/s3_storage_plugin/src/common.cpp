@@ -53,13 +53,15 @@ namespace nx_spl
          */
         FileNameAndPath localUniqueFilePath(const std::string& fileName)
         {
-            std::string tmpFolder = localUniqueFolder();
+            std::string tmpFolder = nx_spl::aux::localUniqueFolder();
             /* Now, when the base path is found, generate pseudo random bytes for a file name. */
-            std::string tempFile = fileName;
-            std::replace(tempFile.begin(), tempFile.end(), '/', '_');
+            std::string tempFile = tmpFolder + fileName;
+            // std::replace(tempFile.begin(), tempFile.end(), '/', '_');
+            fs::path p(tempFile);
             FileNameAndPath nameAndPath;
-            nameAndPath.name = tempFile;
-            nameAndPath.fullPath = tmpFolder + "/" + nameAndPath.name;
+            nameAndPath.name = p.filename().string();
+            nameAndPath.folderPath = p.parent_path().string();
+            nameAndPath.fullPath = tempFile;
             return nameAndPath;
         }
 

@@ -49,7 +49,7 @@ exit /b
         mkdir "%SAMPLE_BUILD_DIR%" || @exit /b
         cd "%SAMPLE_BUILD_DIR%" || @exit /b
         
-        cmake "%SOURCE_DIR%\src" -DCMAKE_TOOLCHAIN_FILE=D:/Datamotion/Plugins/develop/NX_s3_integration/lib/vcpkg-master/scripts/buildsystems/vcpkg.cmake -DCURL_STATICLIB=1 -DUSE_IMPORT_EXPORT=1 -DUSE_WINDOWS_DLL_SEMANTIC=1 -Ax64 %1 %2 %3 %4 %5 %6 %7 %8 %9 || @exit /b
+        cmake "%SOURCE_DIR%\src" -DCMAKE_TOOLCHAIN_FILE=C:/Users/brija/wasabi/vcpkg-master/scripts/buildsystems/vcpkg.cmake -DCURL_STATICLIB=1 -DUSE_IMPORT_EXPORT=1 -DUSE_WINDOWS_DLL_SEMANTIC=1 -Ax64 %1 %2 %3 %4 %5 %6 %7 %8 %9 || @exit /b
         cmake --build . %BUILD_OPTIONS% || @exit /b
     @echo off
     set ARTIFACT1=%SAMPLE_BUILD_DIR%\%BUILD_TYPE%\%SAMPLE%.dll

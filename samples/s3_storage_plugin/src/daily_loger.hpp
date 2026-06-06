@@ -37,10 +37,10 @@ namespace nx_spl
                 static void SetMaxLogFileCount(const int logCount);
 
                 template <typename... Args>
-                static void Log(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 
+                static void Log(LogPriority priority, const char* functionName, int lineNumber, const Args&... args) 
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
-                    privLog(priority,functionName,lineNumber,std::forward<Args>(args)...);
+                    privLog(priority,functionName,lineNumber,args...);
                     updateLogFile();
                 }
 
@@ -56,20 +56,20 @@ namespace nx_spl
                 static void updateLogFile();
                 static void createLogDirectory();
                 template <typename T>
-                static void logMultipleStrings(std::ostream& stream, T&& arg) 
+                static void logMultipleStrings(std::ostream& stream, const T& arg) 
                 {
                     stream << "," << arg ;
                 }
 
                 template <typename T, typename... Args>
-                static void logMultipleStrings(std::ostream& stream, T&& arg, Args&&... args) 
+                static void logMultipleStrings(std::ostream& stream, const T& arg, const Args&... args) 
                 {
                     stream << "," << arg ;
-                    logMultipleStrings(stream, std::forward<Args>(args)...);
+                    logMultipleStrings(stream, args...);
                 }
 
                 template <typename... Args>
-                static void privLog(LogPriority priority, const char* functionName, int lineNumber, Args&&... args) 
+                static void privLog(LogPriority priority, const char* functionName, int lineNumber, const Args&... args) 
                 {
                     if ((priority < m_verbosity) || m_currentLogFile.empty())
                     {
@@ -99,7 +99,7 @@ namespace nx_spl
                         m_file << "[" << timestamp << "] ";
                         
                         m_file << lineNumber << " : " << functionName << "\t";
-                        logMultipleStrings(m_file, std::forward<Args>(args)...);
+                        logMultipleStrings(m_file, args...);
                         m_file << "\n";
                         m_file.close();
                     }

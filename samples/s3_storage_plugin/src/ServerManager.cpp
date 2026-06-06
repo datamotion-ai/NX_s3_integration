@@ -13,6 +13,7 @@ ServerManager *ServerManager::getInstance()
     if(m_serverPtr == nullptr)
     {
         m_serverPtr = new ServerManager();
+        m_serverPtr->updateLicenseDetail();
         m_serverPtr->m_timer.start(m_serverPtr, &ServerManager::updateLicenseDetail,ONE_MINUTE);
     }
     return m_serverPtr;
