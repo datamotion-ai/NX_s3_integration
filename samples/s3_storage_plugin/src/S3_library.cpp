@@ -335,7 +335,7 @@ namespace nx_spl
     {
         INFOLOG("S3Storage::open",uri,flags);
         if(aux::checkECode(ecode, ServerManager::getInstance()->isLicenseAvailable()) != nx_spl::error::NoError)
-        return nullptr;
+            return nullptr;
         IODevice *ret = nullptr;
         std::string filePath(uri);
         try
@@ -454,6 +454,8 @@ namespace nx_spl
                     INFOLOG("local folder full:",localFolderSize);
                     spaceFullSet = true;
                 }
+                if (ecode)
+                    *ecode = error::SpaceInfoNotAvailable;
                 return 0;
             }
 
