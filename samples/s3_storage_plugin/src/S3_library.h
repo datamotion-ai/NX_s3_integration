@@ -116,10 +116,12 @@ namespace nx_spl
     private:
         mutable std::vector<char>   m_urlData;
         std::string                 m_baseDir;
+        mutable std::string         m_url;
         mutable FileInfo            m_fileInfo;
         FileListType                m_fileList;
         mutable FileListIteratorType m_curFile;
         int                         m_basedirsize;
+        mutable std::mutex  m_mutex;
     }; // class S3FileListIterator
 
     class S3Storage

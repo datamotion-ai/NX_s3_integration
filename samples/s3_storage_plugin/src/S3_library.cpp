@@ -362,8 +362,8 @@ namespace nx_spl
                     uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
                     if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
                     {
-                        INFOLOG("Local Folder is full!! No space available.");
-                        *ecode = error::WriteNotSupported;
+                        INFOLOG("Local Folder is full!! No space available. stop writing");
+                        *ecode = error::UnknownError;
                         return ret;
                     }
                     if (!fs::exists(file.folderPath))
@@ -444,28 +444,28 @@ namespace nx_spl
             if (ecode)
                 *ecode = error::NoError;
             
-            static bool spaceFullSet = false;
-            uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
-            if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
-            {
-                DEBUGLOG("local folder full:",localFolderSize);
-                if(spaceFullSet == false)
-                {
-                    INFOLOG("local folder full:",localFolderSize);
-                    spaceFullSet = true;
-                }
-                if (ecode)
-                    *ecode = error::SpaceInfoNotAvailable;
-                return 0;
-            }
-
-            if(spaceFullSet)
-            {
-                INFOLOG("Server is Back Online:",localFolderSize);
-            }
-
-            spaceFullSet = false;
+            // static bool spaceFullSet = false;
+            // if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
+            // {
+            //     DEBUGLOG("local folder full:",localFolderSize);
+            //     if(spaceFullSet == false)
+            //     {
+            //         INFOLOG("local folder full:",localFolderSize);
+            //         spaceFullSet = true;
+            //     }
+            //     if (ecode)
+            //         *ecode = error::SpaceInfoNotAvailable;
+            //     return 0;
+            // }
             
+            // if(spaceFullSet)
+            // {
+                //     INFOLOG("Server is Back Online:",localFolderSize);
+                // }
+                
+                // spaceFullSet = false;
+                
+            uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
             if(m_impl.get() != nullptr)
             {
                 uint64_t totalSize = m_impl.get()->remoteFolderSize();
@@ -1074,6 +1074,7 @@ namespace nx_spl
                     *ecode = error::UrlNotExists;
                 return 0;
             } 
+
             DEBUGLOG("S3IODevice::write:",m_localfile.fullPath,ftell(m_file),m_pos,size);
 
             if (ecode)
@@ -1369,6 +1370,7 @@ namespace nx_spl
         DEBUGLOG("S3FileInfoIterator::next:");
         try
         {
+            std::lock_guard<std::mutex> lock(m_mutex);
             if (ecode)
                 *ecode = nx_spl::error::NoError;
 
@@ -1386,7 +1388,8 @@ namespace nx_spl
                 }  
                 if(substrings.size() == 3)
                 {
-                    m_fileInfo.url = std::string(m_baseDir + "/" + substrings.at(0)).c_str();
+                    m_url = m_baseDir + "/" + substrings.at(0);
+                    m_fileInfo.url = m_url.c_str();
                     if(std::stoi(substrings.at(1)) == 0)
                     {
                         m_fileInfo.type = isFile;
