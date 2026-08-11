@@ -5,37 +5,45 @@ cmake_minimum_required(VERSION 3.13)
 set(SERVICE_NAME s3)
 set(SERVICE_COMPONENTS s3)
 
+# Keep deps/CRT consistent with the installed AWS SDK (x64-windows-static => /MT).
+set(VCPKG_TARGET_TRIPLET "x64-windows-static" CACHE STRING "" FORCE)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
+
+# Prefer vcpkg static AWS SDK over any other AWSSDK on the machine (e.g. Anaconda).
+set(AWSSDK_ROOT_DIR "C:/develop/vcpkg/installed/x64-windows-static" CACHE PATH "" FORCE)
+list(PREPEND CMAKE_PREFIX_PATH
+    "C:/develop/vcpkg/installed/x64-windows-static"
+    "C:/develop/vcpkg/downloads/curl-mt-install")
+
 project(s3_storage_plugin)
 
-# Build shared libraries by default.
+# Plugin is still a shared library; its third-party deps are linked statically (/MT).
 set(BUILD_SHARED_LIBS ON)
 
-# Set the C++ standard to use to build this target.
 set(CMAKE_CXX_STANDARD 17)
 
-# Use the MSVC variable to determine if this is a Windows build.
 set(WINDOWS_BUILD ${MSVC})
 
 find_package(AWSSDK REQUIRED COMPONENTS ${SERVICE_COMPONENTS})
 find_package(CURL REQUIRED)
-find_package(OpenSSL REQUIRED)
-if(NOT WIN32)
-   find_package(ZLIB REQUIRED)
-endif()
+find_package(ZLIB REQUIRED)
 
-Message(STATUS "All linked libs: ${AWSSDK_LINK_LIBRARIES} ")
-Message(STATUS "All platform libs: ${AWSSDK_PLATFORM_DEPS} ")
-Message(STATUS "current cmake directory ${CMAKE_CURRENT_SOURCE_DIR}")
+set(JSONCPP_INCLUDE_DIR "C:/develop/vcpkg/buildtrees/jsoncpp/src/1.9.6-29ceffc35f.clean/include")
+set(JSONCPP_LIBRARY "C:/develop/vcpkg/buildtrees/jsoncpp/x64-windows-static-rel/lib/jsoncpp.lib")
+
+message(STATUS "All linked libs: ${AWSSDK_LINK_LIBRARIES} ")
+message(STATUS "All platform libs: ${AWSSDK_PLATFORM_DEPS} ")
+message(STATUS "current cmake directory ${CMAKE_CURRENT_SOURCE_DIR}")
 
 file(GLOB_RECURSE source_files CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/*)
-add_library(s3_storage_plugin SHARED ${source_files} )
+add_library(s3_storage_plugin SHARED ${source_files})
 
 target_include_directories(s3_storage_plugin PRIVATE
     ../../../src #< SDK headers.
     ${AWSSDK_INCLUDE_DIRS}
-    ../../../lib/jsoncpp/include
-    C:/Users/brija/wasabi/vcpkg-master/installed/x64-windows-static/include)
-    
+    ${JSONCPP_INCLUDE_DIR}
+    ${CURL_INCLUDE_DIRS})
+
 if(WIN32)
     set(API_IMPORT_MACRO "__declspec(dllimport)")
     set(API_EXPORT_MACRO "__declspec(dllexport)")
@@ -50,42 +58,43 @@ target_compile_definitions(s3_storage_plugin
     INTERFACE NX_PLUGIN_API=${API_IMPORT_MACRO}
 )
 
-set(BUILD_SHARED_LIBS ON CACHE STRING "Link to shared libraries by default.")
-
 if(WINDOWS_BUILD)
-     # Copy relevant AWS SDK for C++ libraries into the current binary directory for running and debugging.
-
-     set(BIN_SUB_DIR "/debug") # If you are building from the command line, you may need to uncomment this 
-                                    # and set the proper subdirectory to the executables' location.
-
-     AWSSDK_CPY_DYN_LIBS(SERVICE_COMPONENTS "" ${CMAKE_CURRENT_BINARY_DIR}${BIN_SUB_DIR})
-     string(APPEND CMAKE_CXX_FLAGS " /MP")
-     target_compile_options(s3_storage_plugin BEFORE PRIVATE /Z7)
-     target_compile_definitions(s3_storage_plugin PRIVATE _CRT_SECURE_NO_WARNINGS)
+    string(APPEND CMAKE_CXX_FLAGS " /MP")
+    target_compile_options(s3_storage_plugin BEFORE PRIVATE /Z7 /MT$<$<CONFIG:Debug>:d>)
+    target_compile_definitions(s3_storage_plugin PRIVATE
+        _CRT_SECURE_NO_WARNINGS
+        CURL_STATICLIB)
+    # AWS SDK was built without USE_IMPORT_EXPORT (static libs).
+    target_compile_definitions(s3_storage_plugin PRIVATE
+        AWS_SDK_USE_IMPORT_EXPORT=0)
 else()
-     set_target_properties(s3_storage_plugin PROPERTIES
-    			   CXX_STANDARD_REQUIRED YES
-    			   CXX_EXTENSIONS NO
-    			   LINK_FLAGS "-Wl,-z,defs")
-endif()
-
-if(WINDOWS_BUILD)
-    list(FIND AWSSDK_CLIENT_LIBS "curl" CONTAINS_CURL)
-    if (CONTAINS_CURL EQUAL 0)
-        set(CURL_INCLUDE "C:/Users/brija/wasabi/vcpkg-master/packages/curl_x64-windows-static/include") # Update this with correct curl install location.
-        set(CURL_LIB "C:/Users/brija/wasabi/vcpkg-master/packages/curl_x64-windows-static/lib") # Update this with correct  curl install location.
-    endif()
+    set_target_properties(s3_storage_plugin PROPERTIES
+        CXX_STANDARD_REQUIRED YES
+        CXX_EXTENSIONS NO
+        LINK_FLAGS "-Wl,-z,defs")
 endif()
 
 if(WINDOWS_BUILD)
     target_link_libraries(s3_storage_plugin PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/jsoncpp/build/lib/Release/jsoncpp_static.lib
+        ${JSONCPP_LIBRARY}
         ${AWSSDK_LINK_LIBRARIES}
         CURL::libcurl
-        OpenSSL::SSL 
-        OpenSSL::Crypto)
+        ZLIB::ZLIB
+        ws2_32
+        crypt32
+        wldap32
+        normaliz
+        bcrypt
+        winhttp
+        wininet
+        userenv
+        version
+        ncrypt
+        secur32)
 else()
-    target_link_libraries(s3_storage_plugin PRIVATE 
-   	${AWSSDK_LINK_LIBRARIES} 
-   	${CMAKE_CURRENT_SOURCE_DIR}/../../../lib/jsoncpp/build/lib/libjsoncpp.a)
+    target_link_libraries(s3_storage_plugin PRIVATE
+        ${AWSSDK_LINK_LIBRARIES}
+        ${JSONCPP_LIBRARY}
+        CURL::libcurl
+        ZLIB::ZLIB)
 endif()

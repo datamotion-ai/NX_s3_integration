@@ -5,6 +5,21 @@
 #include "ClearMemoryManager.h"
 
 #define SYNC_FILE "Test.txt"
+#define S3_CLIENT_ALLOCATION_TAG "S3Client"
+
+namespace {
+
+std::shared_ptr<Aws::S3::S3Client> createS3Client(
+    const Aws::Auth::AWSCredentials& credentials,
+    const Aws::S3::S3ClientConfiguration& clientConfig)
+{
+    return std::make_shared<Aws::S3::S3Client>(
+        credentials,
+        Aws::MakeShared<Aws::S3::S3EndpointProvider>(S3_CLIENT_ALLOCATION_TAG),
+        clientConfig);
+}
+
+} // namespace
 
 s3Client::s3Client(const std::string  &url, const std::string  &accessKey, const std::string  &secreatKey, const std::string  &bucket):
 m_url(url),
@@ -43,19 +58,15 @@ bool s3Client::establishS3Connection()
     try
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        Aws::Client::ClientConfiguration clientConfig;
+        Aws::S3::S3ClientConfiguration clientConfig;
         clientConfig.scheme = Aws::Http::Scheme::HTTPS;
         clientConfig.endpointOverride = Aws::String(m_url);
 
         Aws::Auth::AWSCredentials credentials;
         credentials.SetAWSAccessKeyId(m_accessKey);
         credentials.SetAWSSecretKey(m_secretKey);
-        
-        #if defined (_WIN32)
-            m_impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
-        #else
-            m_impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
-        #endif
+
+        m_impl = createS3Client(credentials, clientConfig);
 
         if(m_impl.get() != nullptr)
         {
@@ -130,7 +141,7 @@ bool s3Client::initializeConnection()
     try
     {
         std::lock_guard<std::mutex> lock(m_mutex);
-        Aws::Client::ClientConfiguration clientConfig;
+        Aws::S3::S3ClientConfiguration clientConfig;
         clientConfig.scheme = Aws::Http::Scheme::HTTPS;
         clientConfig.endpointOverride = Aws::String(m_url);
 
@@ -163,14 +174,9 @@ bool s3Client::initializeConnection()
         Aws::Auth::AWSCredentials credentials;
         credentials.SetAWSAccessKeyId(m_accessKey);
         credentials.SetAWSSecretKey(m_secretKey);
-        
-        #if defined (_WIN32)
-            m_impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
-            m_spaceImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
-        #else
-            m_impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
-            m_spaceImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
-        #endif
+
+        m_impl = createS3Client(credentials, clientConfig);
+        m_spaceImpl = createS3Client(credentials, clientConfig);
 
         if((m_impl.get() != nullptr) && (m_spaceImpl.get() != nullptr))
         {
@@ -966,7 +972,7 @@ void s3Client::fileUploadThread()
                             try 
                             {
                                 s3PtrType   uploadImpl; 
-                                Aws::Client::ClientConfiguration clientConfig;
+                                Aws::S3::S3ClientConfiguration clientConfig;
                                 clientConfig.scheme = Aws::Http::Scheme::HTTPS;
                                 clientConfig.endpointOverride = Aws::String(self->m_url);
                                 clientConfig.userAgent = g_userAgent;
@@ -974,13 +980,9 @@ void s3Client::fileUploadThread()
                                 Aws::Auth::AWSCredentials credentials;
                                 credentials.SetAWSAccessKeyId(self->m_accessKey);
                                 credentials.SetAWSSecretKey(self->m_secretKey);
-                                
-                                #if defined (_WIN32)
-                                    uploadImpl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
-                                #else
-                                    uploadImpl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
-                                #endif
-                                
+
+                                uploadImpl = createS3Client(credentials, clientConfig);
+
                                 if(uploadImpl.get() != nullptr)
                                 {
                                     std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
@@ -1098,19 +1100,15 @@ void s3Client::keepAliveActivator()
                     m_storageAvailable = false;
                 // }
                 INFOLOG("Re-Establishing connection!!");
-                Aws::Client::ClientConfiguration clientConfig;
+                Aws::S3::S3ClientConfiguration clientConfig;
                 clientConfig.scheme = Aws::Http::Scheme::HTTPS;
                 clientConfig.endpointOverride = Aws::String(m_url);
 
                 Aws::Auth::AWSCredentials credentials;
                 credentials.SetAWSAccessKeyId(m_accessKey);
                 credentials.SetAWSSecretKey(m_secretKey);
-                
-                #if defined (_WIN32)
-                    m_impl.reset(new Aws::S3::S3Client(credentials, Aws::MakeShared<Aws::S3::S3EndpointProvider>(Aws::S3::S3Client::ALLOCATION_TAG), clientConfig));
-                #else
-                    m_impl.reset(new Aws::S3::S3Client(credentials, nullptr, clientConfig));
-                #endif
+
+                m_impl = createS3Client(credentials, clientConfig);
             }
             else 
             {
