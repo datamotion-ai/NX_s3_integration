@@ -215,5 +215,47 @@ namespace nx_spl
 
             return std::string(buffer);
         }
+
+        bool parseGenerationalNxdb(const std::string& path, std::string* prefix, int* generation)
+        {
+            static const std::string kSuffix = ".nxdb";
+            if (path.size() < kSuffix.size() + 3) // "--0.nxdb" minimum after some prefix
+                return false;
+            if (path.compare(path.size() - kSuffix.size(), kSuffix.size(), kSuffix) != 0)
+                return false;
+
+            const size_t dotPos = path.size() - kSuffix.size();
+            const size_t dashPos = path.rfind("--", dotPos);
+            if (dashPos == std::string::npos || dashPos + 2 >= dotPos)
+                return false;
+
+            int gen = 0;
+            for (size_t i = dashPos + 2; i < dotPos; ++i)
+            {
+                if (!std::isdigit(static_cast<unsigned char>(path[i])))
+                    return false;
+                gen = gen * 10 + (path[i] - '0');
+            }
+
+            if (prefix)
+                *prefix = path.substr(0, dashPos);
+            if (generation)
+                *generation = gen;
+            return true;
+        }
+
+        bool isGenerationalNxdb(const std::string& path)
+        {
+            return parseGenerationalNxdb(path, nullptr, nullptr);
+        }
+
+        std::string successorGenerationalNxdb(const std::string& path)
+        {
+            std::string prefix;
+            int generation = 0;
+            if (!parseGenerationalNxdb(path, &prefix, &generation))
+                return std::string();
+            return prefix + "--" + std::to_string(generation + 1) + ".nxdb";
+        }
     }
 }

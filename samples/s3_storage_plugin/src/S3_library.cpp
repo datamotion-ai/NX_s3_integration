@@ -22,6 +22,72 @@
 namespace nx_spl
 {
 
+    namespace
+    {
+        std::mutex g_pendingNxdbRemoveMutex;
+        std::vector<std::string> g_pendingNxdbRemoves;
+
+        void deferNxdbCloudRemove(const std::string& url)
+        {
+            std::lock_guard<std::mutex> lock(g_pendingNxdbRemoveMutex);
+            if (std::find(g_pendingNxdbRemoves.begin(), g_pendingNxdbRemoves.end(), url)
+                == g_pendingNxdbRemoves.end())
+            {
+                g_pendingNxdbRemoves.push_back(url);
+                INFOLOG("nxdb remove deferred queued", url);
+            }
+        }
+
+        uint64_t successorNxdbRemoteSize(const implPtrType& impl, const std::string& predecessorUrl)
+        {
+            const std::string successor = aux::successorGenerationalNxdb(predecessorUrl);
+            if (successor.empty() || impl.get() == nullptr)
+                return 0;
+            return impl->getRemoteFileSize(successor);
+        }
+
+        void tryProcessPendingNxdbRemoves(const implPtrType& impl, const std::string& uploadedUri)
+        {
+            if (impl.get() == nullptr || !aux::isGenerationalNxdb(uploadedUri))
+                return;
+
+            std::vector<std::string> stillPending;
+            std::vector<std::string> toDelete;
+            {
+                std::lock_guard<std::mutex> lock(g_pendingNxdbRemoveMutex);
+                for (const std::string& pending : g_pendingNxdbRemoves)
+                {
+                    if (aux::successorGenerationalNxdb(pending) == uploadedUri)
+                        toDelete.push_back(pending);
+                    else
+                        stillPending.push_back(pending);
+                }
+                g_pendingNxdbRemoves.swap(stillPending);
+            }
+
+            for (const std::string& pending : toDelete)
+            {
+                // uploadedUri was just PutObject'd at size >= MIN_NXDB_BYTES.
+                if (impl->remoteUriExists(pending))
+                {
+                    if (impl->removeUrl(pending.c_str()))
+                    {
+                        INFOLOG("nxdb deferred remove completed", pending, "after upload of", uploadedUri);
+                    }
+                    else
+                    {
+                        ERRORLOG("nxdb deferred remove failed", pending);
+                        deferNxdbCloudRemove(pending);
+                    }
+                }
+                else
+                {
+                    INFOLOG("nxdb deferred remove skipped, already gone", pending);
+                }
+            }
+        }
+    }
+
     // S3StorageFactory
 
     std::mutex nx_spl::S3StorageFactory::m_mutex;
@@ -549,6 +615,18 @@ namespace nx_spl
             }
             if(m_impl.get() != nullptr)
             {
+                if(aux::isGenerationalNxdb(filePath))
+                {
+                    const uint64_t succRemoteSize = successorNxdbRemoteSize(m_impl, filePath);
+                    if(succRemoteSize < MIN_NXDB_BYTES)
+                    {
+                        INFOLOG("nxdb remove deferred, waiting for successor size",
+                                filePath, succRemoteSize, aux::successorGenerationalNxdb(filePath));
+                        deferNxdbCloudRemove(filePath);
+                        return;
+                    }
+                }
+
                 if(m_impl.get()->remoteUriExists(filePath))
                 {
                     // uint64_t size = m_impl.get()->getRemoteFileSize(filePath);
@@ -962,7 +1040,9 @@ namespace nx_spl
         m_updateDate(""),
         m_pos(0),
         m_altered(false),
+        m_nxdbUploadInProgress(false),
         m_localsize(0),
+        m_lastUploadedNxdbSize(0),
         m_impl(impl),
         m_uri(uri),
         m_file(NULL)
@@ -1094,11 +1174,22 @@ namespace nx_spl
             if(m_localfile.fullPath.find(".nxdb") != std::string::npos)
             {
                 fclose(m_file);
-                if (ServerManager::getInstance()->isNxdbSyncEnabled()
-                    && (m_updateDate.empty() || m_updateDate != nx_spl::aux::getCurrentDate()))
+                const bool dateChanged = ServerManager::getInstance()->isNxdbSyncEnabled()
+                    && (m_updateDate.empty() || m_updateDate != nx_spl::aux::getCurrentDate());
+                const bool isGenNxdb = aux::isGenerationalNxdb(m_uri)
+                    || aux::isGenerationalNxdb(m_localfile.fullPath);
+                const bool crossedMin = isGenNxdb
+                    && (m_localsize >= MIN_NXDB_BYTES)
+                    && (m_lastUploadedNxdbSize < MIN_NXDB_BYTES);
+                const bool grewEnough = isGenNxdb
+                    && (m_localsize >= MIN_NXDB_BYTES)
+                    && (m_localsize >= m_lastUploadedNxdbSize + NXDB_UPLOAD_GROWTH_BYTES);
+
+                if(dateChanged || crossedMin || grewEnough)
                 {
                     flush();
-                    m_updateDate = nx_spl::aux::getCurrentDate();
+                    if(dateChanged)
+                        m_updateDate = nx_spl::aux::getCurrentDate();
                 }
                 m_file = fopen(m_localfile.fullPath.c_str(), "r+b");
                 if (fseek(m_file, (int)m_pos, SEEK_SET) != 0) 
@@ -1297,22 +1388,78 @@ namespace nx_spl
         DEBUGLOG("S3IODevice::flush");
         try
         {
-            if(m_altered)
+            if(!m_altered)
+                return;
+
+            long long fileBytes = m_localsize;
+            if(!m_localfile.fullPath.empty() && fs::exists(m_localfile.fullPath))
             {
-                m_altered = false;
-                if(m_impl.get() != nullptr)
+                const long long diskSize = aux::getFileSize(m_localfile.fullPath.c_str());
+                if(diskSize > fileBytes)
+                    fileBytes = diskSize;
+            }
+
+            const bool isGenNxdb = aux::isGenerationalNxdb(m_uri)
+                || aux::isGenerationalNxdb(m_localfile.fullPath);
+
+            if(isGenNxdb && fileBytes < MIN_NXDB_BYTES)
+            {
+                INFOLOG("nxdb create deferred upload, size=", fileBytes, m_uri);
+                return;
+            }
+
+            if(isGenNxdb && m_nxdbUploadInProgress)
+            {
+                INFOLOG("nxdb upload already in progress", m_uri, fileBytes);
+                return;
+            }
+
+            if(m_impl.get() == nullptr)
+            {
+                ERRORLOG("implPtrType is nullptr!")
+                return;
+            }
+
+            if(isGenNxdb)
+                m_nxdbUploadInProgress = true;
+
+            m_altered = false;
+            bool uploaded = false;
+            try
+            {
+                if(isGenNxdb)
+                    INFOLOG("uploadFile nxdb, size=", fileBytes, m_uri, m_localfile.fullPath);
+                uploaded = m_impl.get()->uploadFile(m_uri.c_str(), m_localfile.fullPath);
+            }
+            catch(...)
+            {
+                if(isGenNxdb)
+                    m_nxdbUploadInProgress = false;
+                m_altered = true;
+                throw;
+            }
+
+            if(isGenNxdb)
+                m_nxdbUploadInProgress = false;
+
+            if(uploaded)
+            {
+                if(isGenNxdb)
                 {
-                    m_impl.get()->uploadFile(m_uri.c_str(),m_localfile.fullPath);
+                    m_lastUploadedNxdbSize = fileBytes;
+                    tryProcessPendingNxdbRemoves(m_impl, m_uri);
                 }
-                else
-                {
-                    ERRORLOG("implPtrType is nullptr!")
-                }
+            }
+            else
+            {
+                m_altered = true;
             }
         }
         catch(const std::exception& e)
         {
             ERRORLOG("Exception Error:",e.what());
+            m_altered = true;
+            m_nxdbUploadInProgress = false;
         }
         
         

@@ -42,7 +42,7 @@
 #include "daily_loger.hpp"
 
 
-#define VERSION "beta-global-2.4"
+#define VERSION "beta-global-2.5"
 
 #ifdef _MSC_VER
 #   define NOEXCEPT
@@ -55,6 +55,11 @@
 #define DEFAULT_200_MB  200 * 1024 * 1024 //200 MB
 #define DEFAULT_1_GB  1024 * 1024 * 1024 //1 GB
 #define S3_DEFAULT_TOTAL_SPACE 1024LL * DEFAULT_1_GB //100 GB
+
+/** Reject header-only StorageDb shells (typically 16 bytes) on generational --N.nxdb uploads. */
+#define MIN_NXDB_BYTES 4096
+/** Re-upload growing catalog after this much additional local growth since last successful PUT. */
+#define NXDB_UPLOAD_GROWTH_BYTES (64 * 1024)
 
 #define ENV_CONFIG_FILE "env.config"
 #define FILE_UPLOAD_JSON "UploadList.json"
@@ -352,6 +357,18 @@ namespace nx_spl
         uintmax_t getFolderSize(const fs::path& folder_path); 
 
         std::string getCurrentDate();
+
+        /** True for StorageDb generational catalogs: *--[0-9]+.nxdb */
+        bool isGenerationalNxdb(const std::string& path);
+
+        /**
+         * Parse *--N.nxdb into prefix (path up to and excluding "--N.nxdb") and generation N.
+         * Returns false if not a generational catalog name.
+         */
+        bool parseGenerationalNxdb(const std::string& path, std::string* prefix, int* generation);
+
+        /** Build *--(N+1).nxdb from *--N.nxdb; empty string if path is not generational. */
+        std::string successorGenerationalNxdb(const std::string& path);
     }
 }
 

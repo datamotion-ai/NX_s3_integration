@@ -78,7 +78,9 @@ namespace nx_spl
         implPtrType             m_impl;
         aux::FileNameAndPath    m_localfile;
         bool                    m_altered;
+        bool                    m_nxdbUploadInProgress;
         long long               m_localsize;
+        long long               m_lastUploadedNxdbSize;
         mutable std::mutex      m_mutex;
         mutable FILE*           m_file;
     }; // class S3IODevice
