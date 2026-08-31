@@ -75,7 +75,7 @@ int ThreadPool::getWorkingTaskCount()
 {
     DEBUGLOG("ThreadPool::getWorkingTaskCount");
     std::lock_guard<std::mutex> lock(queueMutex);
-    return tasks.size();
+    return static_cast<int>(tasks.size());
 }
 
 ThreadPool::~ThreadPool()

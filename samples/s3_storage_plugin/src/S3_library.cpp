@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <map>
+#include <chrono>
 #include "common.hpp"
 #include "S3_library.h"
 #include "daily_loger.hpp"
@@ -22,12 +23,12 @@
 namespace nx_spl
 {
 
-    namespace
+    namespace nxdb
     {
         std::mutex g_pendingNxdbRemoveMutex;
         std::vector<std::string> g_pendingNxdbRemoves;
 
-        void deferNxdbCloudRemove(const std::string& url)
+        void deferCloudRemove(const std::string& url)
         {
             std::lock_guard<std::mutex> lock(g_pendingNxdbRemoveMutex);
             if (std::find(g_pendingNxdbRemoves.begin(), g_pendingNxdbRemoves.end(), url)
@@ -38,7 +39,7 @@ namespace nx_spl
             }
         }
 
-        uint64_t successorNxdbRemoteSize(const implPtrType& impl, const std::string& predecessorUrl)
+        uint64_t successorRemoteSize(const std::shared_ptr<s3Client>& impl, const std::string& predecessorUrl)
         {
             const std::string successor = aux::successorGenerationalNxdb(predecessorUrl);
             if (successor.empty() || impl.get() == nullptr)
@@ -46,7 +47,7 @@ namespace nx_spl
             return impl->getRemoteFileSize(successor);
         }
 
-        void tryProcessPendingNxdbRemoves(const implPtrType& impl, const std::string& uploadedUri)
+        void onCatalogUploaded(const std::shared_ptr<s3Client>& impl, const std::string& uploadedUri)
         {
             if (impl.get() == nullptr || !aux::isGenerationalNxdb(uploadedUri))
                 return;
@@ -67,7 +68,6 @@ namespace nx_spl
 
             for (const std::string& pending : toDelete)
             {
-                // uploadedUri was just PutObject'd at size >= MIN_NXDB_BYTES.
                 if (impl->remoteUriExists(pending))
                 {
                     if (impl->removeUrl(pending.c_str()))
@@ -77,7 +77,7 @@ namespace nx_spl
                     else
                     {
                         ERRORLOG("nxdb deferred remove failed", pending);
-                        deferNxdbCloudRemove(pending);
+                        deferCloudRemove(pending);
                     }
                 }
                 else
@@ -382,6 +382,23 @@ namespace nx_spl
                 {
                     INFOLOG("Connection lost");
                 }
+                else
+                {
+                    // Buffer-full is a throughput/availability fault, not archive capacity.
+                    const uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
+                    if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
+                    {
+                        static std::chrono::steady_clock::time_point s_lastBufLog;
+                        const auto now = std::chrono::steady_clock::now();
+                        if(s_lastBufLog.time_since_epoch().count() == 0
+                            || now - s_lastBufLog >= std::chrono::seconds(30))
+                        {
+                            INFOLOG("Local buffer full, storage temporarily unavailable", localFolderSize);
+                            s_lastBufLog = now;
+                        }
+                        m_available = false;
+                    }
+                }
             }
             else
             {
@@ -428,8 +445,17 @@ namespace nx_spl
                     uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
                     if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
                     {
-                        INFOLOG("Local Folder is full!! No space available. stop writing");
-                        *ecode = error::UnknownError;
+                        // Rate-limit: Media Server may retry open tightly; avoid log floods / AV storms.
+                        static std::chrono::steady_clock::time_point s_lastFullLog;
+                        const auto now = std::chrono::steady_clock::now();
+                        if(s_lastFullLog.time_since_epoch().count() == 0
+                            || now - s_lastFullLog >= std::chrono::seconds(30))
+                        {
+                            INFOLOG("Local Folder is full!! No space available. stop writing");
+                            s_lastFullLog = now;
+                        }
+                        if(ecode)
+                            *ecode = error::UnknownError;
                         return ret;
                     }
                     if (!fs::exists(file.folderPath))
@@ -617,12 +643,12 @@ namespace nx_spl
             {
                 if(aux::isGenerationalNxdb(filePath))
                 {
-                    const uint64_t succRemoteSize = successorNxdbRemoteSize(m_impl, filePath);
+                    const uint64_t succRemoteSize = nxdb::successorRemoteSize(m_impl, filePath);
                     if(succRemoteSize < MIN_NXDB_BYTES)
                     {
                         INFOLOG("nxdb remove deferred, waiting for successor size",
                                 filePath, succRemoteSize, aux::successorGenerationalNxdb(filePath));
-                        deferNxdbCloudRemove(filePath);
+                        nxdb::deferCloudRemove(filePath);
                         return;
                     }
                 }
@@ -1153,7 +1179,20 @@ namespace nx_spl
                 if (ecode)
                     *ecode = error::UrlNotExists;
                 return 0;
-            } 
+            }
+
+            // Back-pressure when staging is full (mkv only) — availability/I/O fault, not space API.
+            if((m_mode & io::WriteOnly)
+                && m_localfile.fullPath.find(".mkv") != std::string::npos)
+            {
+                const uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
+                if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
+                {
+                    if (ecode)
+                        *ecode = error::UnknownError;
+                    return 0;
+                }
+            }
 
             DEBUGLOG("S3IODevice::write:",m_localfile.fullPath,ftell(m_file),m_pos,size);
 
@@ -1166,7 +1205,7 @@ namespace nx_spl
                 ERRORLOG("Failed to write into file",writeSize,size,m_localfile.fullPath);
                 if (ecode)
                     *ecode = error::NotEnoughSpace;
-                return writeSize;
+                return static_cast<uint32_t>(writeSize);
             }
             m_pos += writeSize;
             m_localsize += writeSize;
@@ -1200,7 +1239,7 @@ namespace nx_spl
                     writeSize = 0;
                 }
             } 
-            return writeSize;
+            return static_cast<uint32_t>(writeSize);
         }
         catch(const std::exception& e)
         {
@@ -1246,7 +1285,7 @@ namespace nx_spl
                     m_pos += readSize;
                     if((readSize <= 0) && ecode)
                         *ecode = error::EndOfFile;
-                    return readSize;
+                    return static_cast<uint32_t>(readSize);
                 } 
                 else if (ferror(m_file)) 
                 {
@@ -1258,7 +1297,7 @@ namespace nx_spl
             }
             m_pos += readSize;
             DEBUGLOG("S3IODevice::read",readSize);
-            return readSize;
+            return static_cast<uint32_t>(readSize);
         }
         catch(const std::exception& e)
         {
@@ -1424,12 +1463,36 @@ namespace nx_spl
                 m_nxdbUploadInProgress = true;
 
             m_altered = false;
-            bool uploaded = false;
+            bool queuedOrUploaded = false;
             try
             {
                 if(isGenNxdb)
-                    INFOLOG("uploadFile nxdb, size=", fileBytes, m_uri, m_localfile.fullPath);
-                uploaded = m_impl.get()->uploadFile(m_uri.c_str(), m_localfile.fullPath);
+                {
+                    // Async path — same queue as .mkv — avoids holding s3Client::m_mutex across PutObject
+                    // on the Media Server thread (P0 midnight race with renameFile).
+                    if(m_impl.get()->isFileInUploadList(m_uri))
+                    {
+                        INFOLOG("nxdb already queued for upload, size=", fileBytes, m_uri);
+                        queuedOrUploaded = true;
+                    }
+                    else
+                    {
+                        INFOLOG("uploadFile nxdb queued, size=", fileBytes, m_uri, m_localfile.fullPath);
+                        queuedOrUploaded = m_impl.get()->addFileToUploadInQueue(m_uri.c_str());
+                        if(queuedOrUploaded)
+                        {
+                            INFOLOG("added file to uploaded", m_uri);
+                        }
+                        else
+                        {
+                            ERRORLOG("Failed to queue nxdb upload", m_uri);
+                        }
+                    }
+                }
+                else
+                {
+                    queuedOrUploaded = m_impl.get()->uploadFile(m_uri.c_str(), m_localfile.fullPath);
+                }
             }
             catch(...)
             {
@@ -1442,12 +1505,13 @@ namespace nx_spl
             if(isGenNxdb)
                 m_nxdbUploadInProgress = false;
 
-            if(uploaded)
+            if(queuedOrUploaded)
             {
                 if(isGenNxdb)
                 {
+                    // Track scheduled size so write() growth checks do not re-spam the queue.
+                    // Deferred prior-generation remove runs on async upload success.
                     m_lastUploadedNxdbSize = fileBytes;
-                    tryProcessPendingNxdbRemoves(m_impl, m_uri);
                 }
             }
             else

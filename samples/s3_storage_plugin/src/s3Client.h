@@ -12,6 +12,8 @@
 #include <mutex>
 #include <vector>
 #include <condition_variable>
+#include <atomic>
+#include <chrono>
 
 #include <aws/core/Aws.h>
 #include <aws/s3/S3Client.h>
@@ -57,6 +59,8 @@ class s3Client : public std::enable_shared_from_this<s3Client>
     void stopThread();
     bool isFileInUploadList(std::string file)const;
     bool isTotalSpaceUpdating();
+    /** Re-scan staging for this bucket's pending .mkv/.nxdb and ensure they are queued. */
+    void requeueStagedUploads();
 
     private:
     bool createBucket();
@@ -65,6 +69,10 @@ class s3Client : public std::enable_shared_from_this<s3Client>
     void updateRemoteFolderSize();
     std::vector<std::string> getNextFileToUpload();
     void removeFileFromUploadList(std::string file);
+    void ensureUploadDispatcherRunning();
+    void noteUploadProgress();
+    void clearStaleWorkfilesIfStalled();
+    bool uploadListHasPendingFiles() const;
 
     private:
     bool        m_totalSpaceUpdating;
@@ -90,6 +98,10 @@ class s3Client : public std::enable_shared_from_this<s3Client>
     ThreadPool  m_threadPool;
     Timer       m_keepAliveTimer;
     std::vector<std::string> m_workfiles;
+    std::atomic<bool> m_uploadThreadAlive;
+    std::chrono::steady_clock::time_point m_lastUploadProgress;
+    std::chrono::steady_clock::time_point m_lastQueuedToUploaded;
+    std::atomic<bool> m_pendingUploadWatchdog;
 };
 
 #endif //S3_CLIENT_H

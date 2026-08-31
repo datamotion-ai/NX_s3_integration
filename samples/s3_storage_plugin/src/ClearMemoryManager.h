@@ -20,6 +20,7 @@ class ClearMemoryManager
     void clearMemory();
     void freeTempStorage();
     void loadJsonFile(std::string filename);
+    bool isProtectedFile(const std::string& strFile) const;
 
     private:
     bool m_folderCleaned;

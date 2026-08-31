@@ -2,15 +2,18 @@
 name: wasabi-nx-storagedb
 description: >-
   Explains Nx StorageDb .nxdb generational vacuum (catalog compact/swap),
-  db_ref.guid / cap::DBReady database-host vs backup-storage behavior, Nx archive
-  path layout (main vs backup filenames), first-run init vs listing failures,
-  and how to verify catalog persistence across restarts. Use when the user asks
-  about .nxdb deletion/recreation, StorageDb, removeFiles exceptions naming
-  --N.nxdb, “No previous DB files found”, db_ref.guid / _db_ref.guid probes
-  without a following write, DbReady / isSystem / role backup vs main, whether
-  index vacuum deletes video, advertising cap::DBReady on Wasabi/object storage,
-  why Wasabi paths include bucket/prefix or server GUID, or why .mkv segment
-  names differ between main and backup storage.
+  orphan S3 archives not in the catalog, beta-global-2.5+ deferred tiny-catalog
+  upload and successor-before-remove, db_ref.guid / cap::DBReady database-host
+  vs backup-storage behavior, Nx archive path layout (main vs backup filenames),
+  first-run init vs listing failures, and how to verify catalog persistence
+  across restarts. Use when the user asks about .nxdb deletion/recreation,
+  StorageDb, removeFiles exceptions naming --N.nxdb, “No previous DB files
+  found”, footage in Wasabi missing on the timeline, 16-byte .nxdb uploads,
+  db_ref.guid / _db_ref.guid probes without a following write, DbReady /
+  isSystem / role backup vs main, whether index vacuum deletes video,
+  advertising cap::DBReady on Wasabi/object storage, why Wasabi paths include
+  bucket/prefix or server GUID, or why .mkv segment names differ between main
+  and backup storage.
 ---
 
 # Wasabi / Nx StorageDb Catalog Behavior
@@ -21,6 +24,8 @@ Apply this skill when the user:
 
 - Asks why `.nxdb` files are deleted and recreated
 - Sees StorageDb / `removeFiles` log lines involving `--N.nxdb`
+- Sees `nxdb create deferred upload` / `nxdb remove deferred` in plugin logs
+- Asks about objects in Wasabi for dates the Nx timeline shows empty (orphan catalog)
 - Asks about `db_ref.guid` / `_db_ref.guid` probes on startup (especially probe without a following write)
 - Asks whether missing `db_ref.guid` or omitted `cap::DBReady` is a fault
 - Worries that catalog vacuum deleted recorded video
@@ -28,16 +33,17 @@ Apply this skill when the user:
 - Asks why Wasabi object keys include a bucket/prefix or `<server GUID>` folder
 - Compares main vs backup `.mkv` paths and wonders why segment filenames do not match one-to-one
 
-For plugin-side DailyLogger diagnosis (buffer purge, iterator bugs, upload races), also use `wasabi-nx-troubleshoot`.
+For plugin-side DailyLogger diagnosis (dispatcher death, buffer cascade, iterator bugs), also use `wasabi-nx-troubleshoot`. Field synthesis: `samples/docs/logs8-findings-report.md`.
 
 ## How to answer
 
-1. Treat generational `.nxdb` swap as **normal StorageDb vacuum**, not media deletion.
-2. Distinguish **first-run empty catalog** from **listing failure** after recordings exist (use the verification steps below).
-3. Do not conflate this per-storage media catalog with the primary VMS DB. Without `cap::DBReady`, Wasabi is a non-database backup target; absence of a `db_ref.guid` write is expected.
-4. Do not recommend advertising `cap::DBReady` on object storage unless the user explicitly wants database-host behavior and accepts in-place SQLite over S3.
-5. Treat main vs backup path/filename differences as **expected** (bucket prefix + independent segmentation); do not recommend forcing identical segment names.
-6. Prefer the domain sections below verbatim when explaining server intent.
+1. Treat generational `.nxdb` swap as **normal StorageDb vacuum**, not media deletion — when the successor is durable.
+2. Treat **timeline visibility** as catalog-driven: S3 objects without `.nxdb` entries do not appear on the timeline and are invisible to retention.
+3. Distinguish **first-run empty catalog**, **listing failure**, and **residual damage** from a past empty/tiny cloud catalog (pre-`2.5`).
+4. Do not conflate this per-storage media catalog with the primary VMS DB. Without `cap::DBReady`, Wasabi is a non-database backup target; absence of a `db_ref.guid` write is expected.
+5. Do not recommend advertising `cap::DBReady` on object storage unless the user explicitly wants database-host behavior and accepts in-place SQLite over S3.
+6. Treat main vs backup path/filename differences as **expected** (bucket prefix + independent segmentation).
+7. Prefer the domain sections below when explaining server intent.
 
 ---
 
@@ -45,13 +51,50 @@ For plugin-side DailyLogger diagnosis (buffer purge, iterator bugs, upload races
 
 The deletion and recreation of the `.nxdb` file is the per-storage media catalog being compacted (a “vacuum”) by the server's StorageDb component. Because in-place SQLite edits cannot be safely performed on object storage, the server performs a generational swap — it writes a fresh, compacted generation of the catalog (e.g. `{guid}--2.nxdb`) and then removes the older generation (e.g. `{guid}--1.nxdb`), so that exactly one current catalog remains. In the log, “removeFiles: To remove {…}, exception: …--2.nxdb” indicates the generation being kept; the prior one is what gets removed.
 
+### Plugin durability (`beta-global-2.5+`)
+
+The plugin must not replace a populated cloud catalog with an empty shell:
+
+- `MIN_NXDB_BYTES` (4096) — refuse / defer PUT of generational catalogs below this size (header-only ~16 B shells). Log: `nxdb create deferred upload, size=,…`.
+- Growth / date-change flush may upload once the local catalog is large enough (`NXDB_UPLOAD_GROWTH_BYTES`, `sync_nxdb`).
+- Cloud delete of `--N` is deferred until successor `--(N+1)` exists remotely at ≥ `MIN_NXDB_BYTES`. Log: `nxdb remove deferred…`, then `deleted file …--N.nxdb` after successor upload.
+
+Healthy ordering in plugin logs:
+
+```
+nxdb create deferred upload, size=,16,  …--(N+1).nxdb
+uploadFile nxdb, size=,<hundreds of KB>, …--(N+1).nxdb
+Successfully uploaded …--(N+1).nxdb
+deleted file …--N.nxdb
+```
+
+**Residual:** if cloud upload of `.nxdb` is mostly midnight/restart-only, the bucket copy can lag local `%TEMP%` by up to ~24 h. A temp wipe then resumes from a stale cloud index — same class of exposure that produced orphan archives under older builds.
+
 ## Storage impact
 
 This process is strictly scoped to this specific Wasabi storage location. A StorageDb instance is per-storage, so it does not affect the catalogs of other storage volumes, and it is separate from the primary VMS system database (which is what `cap::DBReady` governs).
 
-## Data retention
+## Data retention vs vacuum
 
-This deletion does not remove recorded archive files. The `.nxdb` is solely an index of the recorded media chunks, not the media itself; the video files are stored separately and are not touched by this routine. During a normal vacuum, existing records are carried forward into the new generation before the old one is removed. In your specific log there were no records to carry forward because the server found no existing catalog and started a new, empty one (“No previous DB files found. Starting with a new one,” followed by “Nothing to write”). The one scenario to be aware of is indirect: if the catalog cannot be reliably read back across restarts, the server will keep starting with an empty index and previously recorded media — while still present on the storage — would not be visible until an archive re-index is performed. That depends on the plugin reliably persisting and returning the `.nxdb`, which the verification step below is designed to confirm.
+Vacuum deletion does **not** remove recorded archive `.mkv` files. The `.nxdb` is solely an index; video objects are stored separately. During a normal vacuum, existing records are carried forward into the new generation before the old one is removed.
+
+If the log shows “No previous DB files found. Starting with a new one,” followed by “Nothing to write,” the server found no usable catalog and started empty — media already on S3 is not deleted by that message, but also not visible until re-indexed.
+
+## Orphan archive (in bucket, not in catalog)
+
+**Symptom:** Wasabi lists `.mkv` for dates the Nx timeline shows empty; retention never deletes those days (it always starts from the catalog’s earliest record).
+
+**Meaning:** The timeline is driven by `<GUID>--N.nxdb`, not by bucket contents. Enumeration via `getFileIterator` / `getobjectKeys` can be healthy while indexing history starts later (e.g. catalog begins mid-July while objects exist from mid-June).
+
+**Typical cause:** Historical bad rotation (pre-`2.5` uploaded ~16 B `--(N+1).nxdb` then deleted populated `--N`), then only forward indexing — residual damage, not necessarily an ongoing fault if current generations are large and ordered correctly.
+
+**Recovery order (critical):**
+
+1. **Raise declared capacity in `s3.config` first.** Reindexing older days without headroom makes retention see the storage as far over limit and purge the recovered oldest footage immediately.
+2. Confirm `S3FileInfoIterator` has **zero** path-corruption hits (`wasabi-nx-troubleshoot` / log-signatures issue 6).
+3. Run **Rebuild archive index** on that storage.
+4. Verify older days appear on the timeline and retention settles at the intended depth.
+5. Orphaned objects also consume capacity Nx does not account for — reclaiming or indexing them changes how much visible history fits.
 
 ## Purpose of db_ref.guid
 
@@ -111,11 +154,18 @@ Because the log shows “No previous DB files found. Starting with a new one,”
 
 If the restart shows the existing `.nxdb` being found and loaded — not “starting with a new one” — and the recordings remain visible in the timeline, the integration is behaving correctly. If “No previous DB files found” recurs after footage has been recorded, it indicates the plugin's `getFileIterator` / object-listing layer is not listing the previously written `.nxdb` back to the server (a listing or read-after-write consistency issue on the object-storage side) rather than a server problem. In that case the recorded media stays safely on the storage but remains unindexed until an archive re-index, and that listing logic would be the area to investigate.
 
+Also verify in plugin DailyLogger after vacuum:
+
+- No tiny (e.g. 16 B) generational `.nxdb` successfully uploaded to S3
+- Prior generation removed only after successor upload success
+- Zero recurring “No previous DB files found” after known footage
+
 ## Related plugin investigation
 
-If verification fails (empty catalog after recorded footage):
+If verification fails (empty catalog after recorded footage) or orphans exist:
 
 - Inspect `S3FileInfoIterator` / `getobjectKeys` listing of `--*.nxdb` (media catalog persistence/listing)
-- Confirm durable upload and read-after-write of `.nxdb` generations
+- Confirm durable upload and read-after-write of `.nxdb` generations (`MIN_NXDB_BYTES` path)
 - Do **not** treat missing `*_db_ref.guid` as the root cause when `cap::DBReady` is omitted — that write is not expected
-- See `wasabi-nx-troubleshoot` for iterator corruption and other plugin-side failure modes
+- Before reindex: raise `s3.config` capacity; rule out iterator corruption
+- See `wasabi-nx-troubleshoot` for dispatcher death, buffer cascade, and other plugin-side failure modes

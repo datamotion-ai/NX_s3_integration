@@ -41,8 +41,12 @@
 #include "storage/third_party_storage.h"
 #include "daily_loger.hpp"
 
+class s3Client;
 
-#define VERSION "beta-global-2.5"
+#define VERSION "beta-global-2.6"
+
+/** Seconds without upload progress before clearing stale in-flight slots / warning. */
+#define UPLOAD_STALL_WATCHDOG_SECONDS 60
 
 #ifdef _MSC_VER
 #   define NOEXCEPT
@@ -369,6 +373,14 @@ namespace nx_spl
 
         /** Build *--(N+1).nxdb from *--N.nxdb; empty string if path is not generational. */
         std::string successorGenerationalNxdb(const std::string& path);
+    }
+
+    /** Deferred prior-generation .nxdb cloud removes (shared by flush and async upload completion). */
+    namespace nxdb
+    {
+        void deferCloudRemove(const std::string& url);
+        uint64_t successorRemoteSize(const std::shared_ptr<s3Client>& impl, const std::string& predecessorUrl);
+        void onCatalogUploaded(const std::shared_ptr<s3Client>& impl, const std::string& uploadedUri);
     }
 }
 
