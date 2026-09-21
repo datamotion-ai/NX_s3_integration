@@ -171,18 +171,178 @@ namespace nx_spl
 
         uintmax_t getFolderSize(const fs::path &folder_path)
         {
+            // Never throws: this is called from ABI entry points (write/open/isAvailable) and
+            // from getCapabilities(), where an escaping exception would cross into the Media Server.
             uintmax_t size = 0;
+            std::error_code ec;
+            if (!fs::exists(folder_path, ec) || ec)
+                return 0;
             try{
-                for (const auto& entry : fs::recursive_directory_iterator(folder_path)) 
-                {                
-                    size += getFileSize(entry);                
+                fs::recursive_directory_iterator it(folder_path, fs::directory_options::skip_permission_denied, ec);
+                fs::recursive_directory_iterator end;
+                if (ec)
+                {
+                    ERRORLOG("DMError: getFolderSize cannot open", folder_path.string(), ec.message());
+                    return 0;
+                }
+                while (it != end)
+                {
+                    size += getFileSize(*it);
+                    it.increment(ec);
+                    if (ec)
+                    {
+                        // A file removed by the uploader/cleaner mid-walk is normal; keep what we have.
+                        DEBUGLOG("getFolderSize increment error", ec.message());
+                        ec.clear();
+                        break;
+                    }
                 }
             }catch (const std::exception &ex) {
                 ERRORLOG("DMError: Exception in getFolderSize ", ex.what());
-                throw;
+            }catch (...) {
+                ERRORLOG("DMError: Unknown exception in getFolderSize");
             }
             DEBUGLOG("getFolderSize",size);
             return size;
+        }
+
+        bool isClosedSegmentName(const std::string& fileName)
+        {
+            static const std::string kExt = ".mkv";
+            if (fileName.size() <= kExt.size()
+                || fileName.compare(fileName.size() - kExt.size(), kExt.size(), kExt) != 0)
+            {
+                return false;
+            }
+            const std::string stem = fileName.substr(0, fileName.size() - kExt.size());
+            const size_t underscore = stem.find('_');
+            if (underscore == std::string::npos || underscore == 0 || underscore + 1 >= stem.size())
+                return false;
+            for (size_t i = 0; i < stem.size(); ++i)
+            {
+                if (i == underscore)
+                    continue;
+                if (!std::isdigit(static_cast<unsigned char>(stem[i])))
+                    return false;
+            }
+            return true;
+        }
+
+        StagingUsage& StagingUsage::instance()
+        {
+            static StagingUsage s_instance;
+            return s_instance;
+        }
+
+        void StagingUsage::refreshLocked(const std::string& scope, Entry& entry)
+        {
+            const auto now = std::chrono::steady_clock::now();
+            if (entry.measuredAt.time_since_epoch().count() != 0
+                && now - entry.measuredAt < std::chrono::seconds(STAGING_USAGE_REFRESH_SECONDS))
+            {
+                return;
+            }
+            std::string root = localUniqueFolder();
+            fs::path target = scope.empty() ? fs::path(root) : fs::path(root) / scope;
+            entry.bytes = getFolderSize(target);
+            entry.measuredAt = now;
+        }
+
+        void StagingUsage::refreshDiskLocked()
+        {
+            const auto now = std::chrono::steady_clock::now();
+            if (m_diskMeasuredAt.time_since_epoch().count() != 0
+                && now - m_diskMeasuredAt < std::chrono::seconds(STAGING_USAGE_REFRESH_SECONDS))
+            {
+                return;
+            }
+            std::error_code ec;
+            const fs::space_info info = fs::space(localUniqueFolder(), ec);
+            if (!ec && info.available != static_cast<uintmax_t>(-1))
+                m_diskFree = info.available;
+            // On error keep the last good value.
+            m_diskMeasuredAt = now;
+        }
+
+        uintmax_t StagingUsage::bytes(const std::string& scope)
+        {
+            try
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                Entry& entry = m_entries[scope];
+                refreshLocked(scope, entry);
+                return entry.bytes;
+            }
+            catch (const std::exception& e)
+            {
+                ERRORLOG("StagingUsage::bytes", e.what());
+                return 0;
+            }
+        }
+
+        uintmax_t StagingUsage::diskFree()
+        {
+            try
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                refreshDiskLocked();
+                return m_diskFree;
+            }
+            catch (const std::exception& e)
+            {
+                ERRORLOG("StagingUsage::diskFree", e.what());
+                return static_cast<uintmax_t>(-1);
+            }
+        }
+
+        bool StagingUsage::isFull(const std::string& scope, uint64_t limitBytes)
+        {
+            try
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                Entry& entry = m_entries[scope];
+                refreshLocked(scope, entry);
+                refreshDiskLocked();
+
+                const bool diskLow = (m_diskMeasuredAt.time_since_epoch().count() != 0)
+                    && (m_diskFree < STAGING_MIN_DISK_FREE_BYTES);
+                const uint64_t resumeBelow = static_cast<uint64_t>(limitBytes * BUFFER_RESUME_RATIO);
+
+                if (!entry.full)
+                {
+                    if (entry.bytes > limitBytes || diskLow)
+                    {
+                        entry.full = true;
+                        INFOLOG("Local buffer full, storage temporarily unavailable",
+                                "scope=", scope, "bytes=", entry.bytes, "limit=", limitBytes,
+                                "diskFree=", m_diskFree);
+                    }
+                }
+                else
+                {
+                    if (entry.bytes < resumeBelow && !diskLow)
+                    {
+                        entry.full = false;
+                        INFOLOG("Local buffer drained, storage available",
+                                "scope=", scope, "bytes=", entry.bytes, "resumeBelow=", resumeBelow,
+                                "diskFree=", m_diskFree);
+                    }
+                }
+                return entry.full;
+            }
+            catch (const std::exception& e)
+            {
+                ERRORLOG("StagingUsage::isFull", e.what());
+                return false;
+            }
+        }
+
+        void StagingUsage::invalidate()
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            for (auto& kv : m_entries)
+                kv.second.measuredAt = std::chrono::steady_clock::time_point{};
+            m_diskMeasuredAt = std::chrono::steady_clock::time_point{};
         }
 
         uintmax_t getFileSize(const fs::directory_entry &entry) 

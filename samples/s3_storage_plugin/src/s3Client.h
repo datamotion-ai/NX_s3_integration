@@ -61,18 +61,24 @@ class s3Client : public std::enable_shared_from_this<s3Client>
     bool isTotalSpaceUpdating();
     /** Re-scan staging for this bucket's pending .mkv/.nxdb and ensure they are queued. */
     void requeueStagedUploads();
+    const std::string& bucket() const { return m_bucket; }
 
     private:
     bool createBucket();
-    void fileUploadThread();
+    void fileUploadThread(unsigned generation);
     void keepAliveActivator();
     void updateRemoteFolderSize();
     std::vector<std::string> getNextFileToUpload();
     void removeFileFromUploadList(std::string file);
     void ensureUploadDispatcherRunning();
+    /** Watchdog (Timer thread): escalate when pending uploads make no progress. */
+    void uploadWatchdog();
+    /** Replace the dispatcher thread (used when it is alive but stuck). */
+    void restartUploadDispatcher();
     void noteUploadProgress();
     void clearStaleWorkfilesIfStalled();
     bool uploadListHasPendingFiles() const;
+    std::vector<std::string> uploadListKeys() const;
 
     private:
     bool        m_totalSpaceUpdating;
@@ -102,6 +108,12 @@ class s3Client : public std::enable_shared_from_this<s3Client>
     std::chrono::steady_clock::time_point m_lastUploadProgress;
     std::chrono::steady_clock::time_point m_lastQueuedToUploaded;
     std::atomic<bool> m_pendingUploadWatchdog;
+    /** Bumped on every dispatcher (re)start; a running dispatcher exits when it no longer matches. */
+    std::atomic<unsigned> m_dispatcherGeneration;
+    std::atomic<unsigned> m_dispatcherExits;
+    int m_stallTicks = 0;
+    std::chrono::steady_clock::time_point m_lastBusyLog;
+    std::chrono::steady_clock::time_point m_lastOrphanScan;
 };
 
 #endif //S3_CLIENT_H

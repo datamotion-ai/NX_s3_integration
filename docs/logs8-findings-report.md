@@ -1,41 +1,47 @@
 # Nx Witness + Wasabi S3 Plugin — Investigation Report
 
 **Subject:** Missing footage on the Nx timeline and archive sync failures on Wasabi backup storage
-**Report date:** 2026-08-30 (updated 2026-08-31 — crash-dump exception analysis)
+**Report date:** 2026-08-30 (updated 2026-08-31 — crash-dump exception analysis; 2026-09-07 — Phase 2 code status for `beta-global-2.7`)
 **Status:** Root causes identified; one P0 code defect, one recoverable data-visibility issue, one behaviour confirmed normal; all five dumps parsed
 
 ---
 
 ## Environment
 
-| Item | Value |
-|---|---|
-| Media Server | `mediaserver.exe` 6.1.2.42921 (`40d5d24197ba`) |
-| Server GUID | `937512fb-97b5-7a6b-eaba-a5ffb61b444b` |
-| Plugin | `Wasabi/beta-global-2.5` (`s3_storage_plugin.dll`) |
-| Host | Windows Server, 10.0.17763 x64 |
-| Storage | `s3://s3.us-east-1.wasabisys.com/nx-old-june18` |
-| Storage role | Backup, non-system (`cap::DBReady` intentionally omitted) |
-| Local staging | `C:\Windows\TEMP\Nx Storage` |
-| `local_buffer` | 2,147,483,648 bytes (2 GB) |
-| `log_level` / `log_max` | 1 (INFO) / 3 |
-| Evidence | `logs8/logs7/logs7/` — 229 DailyLogger files, 2026-08-15 01:15 → 2026-08-27 07:02 |
-| Crash dumps | `logs8/crash1/crash1/` — 5 × `mediaserver.exe` dumps |
-| Corroborating sets | `logs4` (Jul 28 – Aug 4), `logs5` (Aug 11), `logs6` (Aug 15–17), `logs7` (Aug 17–19) |
+
+| Item                    | Value                                                                                |
+| ----------------------- | ------------------------------------------------------------------------------------ |
+| Media Server            | `mediaserver.exe` 6.1.2.42921 (`40d5d24197ba`)                                       |
+| Server GUID             | `937512fb-97b5-7a6b-eaba-a5ffb61b444b`                                               |
+| Plugin                  | `Wasabi/beta-global-2.5` (`s3_storage_plugin.dll`)                                   |
+| Host                    | Windows Server, 10.0.17763 x64                                                       |
+| Storage                 | `s3://s3.us-east-1.wasabisys.com/nx-old-june18`                                      |
+| Storage role            | Backup, non-system (`cap::DBReady` intentionally omitted)                            |
+| Local staging           | `C:\Windows\TEMP\Nx Storage`                                                         |
+| `local_buffer`          | 2,147,483,648 bytes (2 GB)                                                           |
+| `log_level` / `log_max` | 1 (INFO) / 3                                                                         |
+| Evidence                | `logs8/logs7/logs7/` — 229 DailyLogger files, 2026-08-15 01:15 → 2026-08-27 07:02    |
+| Crash dumps             | `logs8/crash1/crash1/` — 5 × `mediaserver.exe` dumps                                 |
+| Corroborating sets      | `logs4` (Jul 28 – Aug 4), `logs5` (Aug 11), `logs6` (Aug 15–17), `logs7` (Aug 17–19) |
+
 
 **Workload baseline:** one active camera, hi-quality stream only. ~1,272 segments/day, average segment **63.3 MB** (range 2.3 MB – 186 MB) ≈ **~80 GB/day** ingest. Reported bucket free space is pinned at **~63.8 GB**, i.e. **less than one day of recording**.
 
 ---
 
+
+
 ## Executive summary
 
 Three separate issues were found behind the reported symptoms. Only one is a plugin defect.
 
-| # | Finding | Severity | Effect |
-|---|---|---|---|
-| **1** | **~25 days of archive (2026-06-18 → 2026-07-12) exist in Wasabi but are absent from the `.nxdb` catalog** | High — recoverable | Footage is in the bucket but cannot appear on the timeline. Also invisible to retention, so it silently consumes capacity. |
-| **2** | **`.mkv` upload dispatcher dies in a race with the midnight `.nxdb` upload** | **Critical — P0 code defect** | ~3,250 segments (~206 GB, ~21% of the window) never reached Wasabi. Four outages totalling ~69 h. Stall terminations are `0xC0000005` AVs at a shared `nx_utils.dll` site; Aug 19 is a separate plugin AV. |
-| **3** | Retention deletion of July 13–28 footage | Normal | Expected ~30-day rolling retention at capacity. **Not** a fault, and **not** buffer-driven. |
+
+| #     | Finding                                                                                                       | Severity                      | Effect                                                                                                                                                                                                     |
+| ----- | ------------------------------------------------------------------------------------------------------------- | ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1** | **~25 days of archive (2026-06-18 → 2026-07-12) exist in Wasabi but are absent from the** `.nxdb` **catalog** | High — recoverable            | Footage is in the bucket but cannot appear on the timeline. Also invisible to retention, so it silently consumes capacity.                                                                                 |
+| **2** | `.mkv` **upload dispatcher dies in a race with the midnight** `.nxdb` **upload**                              | **Critical — P0 code defect** | ~3,250 segments (~206 GB, ~21% of the window) never reached Wasabi. Four outages totalling ~69 h. Stall terminations are `0xC0000005` AVs at a shared `nx_utils.dll` site; Aug 19 is a separate plugin AV. |
+| **3** | Retention deletion of July 13–28 footage                                                                      | Normal                        | Expected ~30-day rolling retention at capacity. **Not** a fault, and **not** buffer-driven.                                                                                                                |
+
 
 **Reported symptom mapping**
 
@@ -45,7 +51,11 @@ Three separate issues were found behind the reported symptoms. Only one is a plu
 
 ---
 
+
+
 ## Finding 1 — Archive in the bucket is not in the catalog
+
+
 
 ### Symptom
 
@@ -70,13 +80,15 @@ June 18–20 alone still listed 383 / 905 / 407 objects in the final scan pass, 
 
 **Retention behaviour proves where the catalog starts.** Nx retention always deletes the oldest chunk *it has indexed*, so tracing its first-ever run pinpoints the catalog's earliest record:
 
-| Corpus | Window | Cloud `.mkv` deletes |
-|---|---|---|
-| `logs4` | Jul 28 – Aug 4 | none — archive still growing |
-| `logs5` | Aug 11 | none |
-| `logs6` | Aug 15 – 17 | **first ever: `2026/07/13`, 36 segments**, then 07/14, 07/15, 07/16 |
-| `logs7` | Aug 17 – 19 | 07/18, 07/19, 07/20 |
-| `logs8` | Aug 15 – 27 | 07/13 → 07/28, never earlier |
+
+| Corpus  | Window         | Cloud `.mkv` deletes                                                    |
+| ------- | -------------- | ----------------------------------------------------------------------- |
+| `logs4` | Jul 28 – Aug 4 | none — archive still growing                                            |
+| `logs5` | Aug 11         | none                                                                    |
+| `logs6` | Aug 15 – 17    | **first ever:** `2026/07/13`**, 36 segments**, then 07/14, 07/15, 07/16 |
+| `logs7` | Aug 17 – 19    | 07/18, 07/19, 07/20                                                     |
+| `logs8` | Aug 15 – 27    | 07/13 → 07/28, never earlier                                            |
+
 
 Retention began around Aug 15 when the storage reached capacity, and the oldest record it could find was **July 13** — and only a partial day of it (36 segments), which is the catalog's first entry. Had June 18 – July 12 been indexed, those days would have been purged first. They were never touched.
 
@@ -84,20 +96,22 @@ The range is therefore orphaned in both directions: **invisible to the timeline,
 
 ### Why the catalog lost its early history
 
-No log corpus covers mid-July (the earliest is `logs4`, starting Jul 28), so the reset is not directly observable. The known `beta-global-2.4` defect documented in `nxdb-catalog-timeline-fix.md` is precisely this failure mode: at rotation the plugin uploaded a **16-byte empty `.nxdb`** to Wasabi and deleted the populated prior generation from the cloud, leaving the only complete index in `%TEMP%`. Any temp wipe, host move, or restart that fell back to the S3 copy would resume from an empty catalog and index only forward from that point.
+No log corpus covers mid-July (the earliest is `logs4`, starting Jul 28), so the reset is not directly observable. The known `beta-global-2.4` defect documented in `nxdb-catalog-timeline-fix.md` is precisely this failure mode: at rotation the plugin uploaded a **16-byte empty** `.nxdb` to Wasabi and deleted the populated prior generation from the cloud, leaving the only complete index in `%TEMP%`. Any temp wipe, host move, or restart that fell back to the S3 copy would resume from an empty catalog and index only forward from that point.
 
 **That defect is fixed in the running 2.5 build** (see [Verified healthy](#verified-healthy)). This is residual damage from the older build, not an ongoing catalog fault.
 
 ### The plugin is not withholding the data
 
-The server walks the full tree roughly every hour and the plugin returns the June objects correctly every time. Enumeration is healthy — **3,002,518 `S3FileInfoIterator::next` calls** across the corpus, reaching individual files:
+The server walks the full tree roughly every hour and the plugin returns the June objects correctly every time. Enumeration is healthy — **3,002,518** `S3FileInfoIterator::next` **calls** across the corpus, reaching individual files:
 
-| Path depth | Entries | Level |
-|---|---|---|
-| 10 | 2,868,986 | `.mkv` files |
-| 9 | 120,031 | hour folders |
-| 8 | 6,672 | day folders |
-| 3–7 | ~6,800 | bucket / quality / camera / year / month |
+
+| Path depth | Entries   | Level                                    |
+| ---------- | --------- | ---------------------------------------- |
+| 10         | 2,868,986 | `.mkv` files                             |
+| 9          | 120,031   | hour folders                             |
+| 8          | 6,672     | day folders                              |
+| 3–7        | ~6,800    | bucket / quality / camera / year / month |
+
 
 Minimum depth is 3 with no stray single-token or malformed paths — independently confirming zero `S3FileInfoIterator` corruption. Only indexing is missing.
 
@@ -112,7 +126,11 @@ The orphaned ~25 days occupy capacity Nx does not account for. With free space p
 
 ---
 
+
+
 ## Finding 2 — Upload dispatcher race (P0 code defect)
+
+
 
 ### Symptom
 
@@ -135,9 +153,13 @@ s3Client::fileUploadThread        → "Delete File:" (temp reclaimed)
 ThreadPool::addWorker             → "Thread closed!!"
 ```
 
+
+
 ### Evidence — 2026-08-27 00:00:26
 
-The synchronous `.nxdb` upload and the `.mkv` hand-off land in the same second:
+The synchronous `.nxdb` upload and
+
+ame second:
 
 ```
 00:00:26  S3IODevice::flush      uploadFile nxdb, size=,429320,  …--78.nxdb
@@ -149,18 +171,20 @@ The synchronous `.nxdb` upload and the `.mkv` hand-off land in the same second:
 00:02:37  S3Storage::renameFile  added file to uploaded  …1787803292575_64262.mkv
 ```
 
-`1787803153026_73107.mkv` never receives `added file in queue`, and neither does any segment after it. **Zero `fileUploadThread` lines exist between 00:02 and the 06:22 crash.** Identical signature on 2026-08-23 at 00:00:27 (`--72.nxdb` colliding with `1787457558159_69030.mkv`), followed by 16 hours of no upload activity.
+`1787803153026_73107.mkv` never receives `added file in queue`, and neither does any segment after it. **Zero** `fileUploadThread` **lines exist between 00:02 and the 06:22 crash.** Identical signature on 2026-08-23 at 00:00:27 (`--72.nxdb` colliding with `1787457558159_69030.mkv`), followed by 16 hours of no upload activity.
 
 ### Confirmed as a race, not deterministic
 
 On nights that survived, the two operations do not overlap in the same instant:
 
-| Night | `.nxdb` flush | `.mkv` hand-off | Outcome |
-|---|---|---|---|
-| Aug 24 | 00:00:45 | renameFile 00:00:**44** (before flush) | survived — queued 00:00:47 |
-| Aug 26 | 00:00:23 | 00:00:**50** (27 s later) | survived — queued 00:00:51 |
-| **Aug 23** | 00:00:27 | 00:00:**27** (same second) | **dispatcher died** |
-| **Aug 27** | 00:00:26 | 00:00:**26** (same second) | **dispatcher died** |
+
+| Night      | `.nxdb` flush | `.mkv` hand-off                        | Outcome                    |
+| ---------- | ------------- | -------------------------------------- | -------------------------- |
+| Aug 24     | 00:00:45      | renameFile 00:00:**44** (before flush) | survived — queued 00:00:47 |
+| Aug 26     | 00:00:23      | 00:00:**50** (27 s later)              | survived — queued 00:00:51 |
+| **Aug 23** | 00:00:27      | 00:00:**27** (same second)             | **dispatcher died**        |
+| **Aug 27** | 00:00:26      | 00:00:**26** (same second)             | **dispatcher died**        |
+
 
 Roughly one night in three loses the race.
 
@@ -177,11 +201,13 @@ dispatcher dies at midnight
 
 Timing confirms the mechanism precisely:
 
-| Night | Dispatcher died | First `Local Folder is full` | Delay | Crash / restart | Backlog discarded |
-|---|---|---|---|---|---|
-| Aug 23 | 00:00:27 | 00:33:03 | 32 min | 16:26:18 (crash) | **30 segments** |
-| Aug 27 | 00:00:26 | 00:29:56 | 29 min | 06:22:48 (crash) | **28 segments** |
-| Aug 15 | before corpus | 01:15:32 | — | 12:53:52 | **39 segments** |
+
+| Night  | Dispatcher died | First `Local Folder is full` | Delay  | Crash / restart  | Backlog discarded |
+| ------ | --------------- | ---------------------------- | ------ | ---------------- | ----------------- |
+| Aug 23 | 00:00:27        | 00:33:03                     | 32 min | 16:26:18 (crash) | **30 segments**   |
+| Aug 27 | 00:00:26        | 00:29:56                     | 29 min | 06:22:48 (crash) | **28 segments**   |
+| Aug 15 | before corpus   | 01:15:32                     | —      | 12:53:52         | **39 segments**   |
+
 
 Normal restarts discard exactly 1 segment (the open one). These three discarded 28–39 — recorded video destroyed. 114 segments were lost this way across the corpus.
 
@@ -189,13 +215,15 @@ Normal restarts discard exactly 1 segment (the open one). These three discarded 
 
 All five minidumps were parsed (ExceptionStream + ModuleList). Every dump is `0xC0000005` (`STATUS_ACCESS_VIOLATION`). Two distinct fault sites appear:
 
-| Dump | Timestamp (local) | Correlates with | Exception | Fault module / offset | Detail |
-|---|---|---|---|---|---|
-| `sent_…_9568.dmp` | 2026-08-23 16:26:18 | **End of the Aug 23 stall** | `0xC0000005` | `nx_utils.dll + 0x1F0B5` | Write to NULL (`ExceptionInformation` = write, address `0x0`) |
-| `sent_…_22324.dmp` | 2026-08-27 06:22:48 | **End of the Aug 27 stall** | `0xC0000005` | `nx_utils.dll + 0x1F0B5` | Same NULL-write site |
-| `sent_…_23820.dmp` | 2026-08-23 22:54:42 | Restart after Aug 23 stall | `0xC0000005` | `nx_utils.dll + 0x1F0B5` | Same NULL-write site |
-| `…_19560.dmp` | 2026-08-21 00:00:02 | Midnight restart | `0xC0000005` | `nx_utils.dll + 0x1F0B5` | Same NULL-write site |
-| `…_19088.dmp` | 2026-08-19 10:40:48 | Restart after `ClearMemoryManager` race | `0xC0000005` | **`s3_storage_plugin.dll + 0xCD84`** | Read of `0xFFFFFFFFFFFFFFFF` |
+
+| Dump               | Timestamp (local)   | Correlates with                         | Exception    | Fault module / offset            | Detail                                                        |
+| ------------------ | ------------------- | --------------------------------------- | ------------ | -------------------------------- | ------------------------------------------------------------- |
+| `sent_…_9568.dmp`  | 2026-08-23 16:26:18 | **End of the Aug 23 stall**             | `0xC0000005` | `nx_utils.dll + 0x1F0B5`         | Write to NULL (`ExceptionInformation` = write, address `0x0`) |
+| `sent_…_22324.dmp` | 2026-08-27 06:22:48 | **End of the Aug 27 stall**             | `0xC0000005` | `nx_utils.dll + 0x1F0B5`         | Same NULL-write site                                          |
+| `sent_…_23820.dmp` | 2026-08-23 22:54:42 | Restart after Aug 23 stall              | `0xC0000005` | `nx_utils.dll + 0x1F0B5`         | Same NULL-write site                                          |
+| `…_19560.dmp`      | 2026-08-21 00:00:02 | Midnight restart                        | `0xC0000005` | `nx_utils.dll + 0x1F0B5`         | Same NULL-write site                                          |
+| `…_19088.dmp`      | 2026-08-19 10:40:48 | Restart after `ClearMemoryManager` race | `0xC0000005` | `s3_storage_plugin.dll + 0xCD84` | Read of `0xFFFFFFFFFFFFFFFF`                                  |
+
 
 **Interpretation**
 
@@ -205,25 +233,29 @@ All five minidumps were parsed (ExceptionStream + ModuleList). Every dump is `0x
 - Dump headers report OS **10.0.17763**, 12 CPUs, and loaded module lists of 198 entries including `s3_storage_plugin.dll` and the AWS CRT/S3 plugin dependencies — environment matches the plugin logs.
 - No dump exists for the Aug 18 00:01 event (longest outage, ~33 h of plugin silence). The two unprefixed dumps (`…_19088`, `…_19560`) were never sent upstream.
 
+
+
 ### Impact — footage that never reached Wasabi
 
 Expected ingest ~1,272 segments/day:
 
-| Day | Uploaded | Hours with zero uploads |
-|---|---|---|
-| 2026-08-15 | 626 | 00:00 – 12:53 |
-| 2026-08-16 | 1,275 | — |
-| 2026-08-17 | 1,273 | — |
-| 2026-08-18 | **0** | **entire day** |
-| 2026-08-19 | 774 | 00:00 – 09:20 |
-| 2026-08-20 | 1,272 | — |
-| 2026-08-21 | 1,276 | — |
-| 2026-08-22 | 1,274 | — |
-| 2026-08-23 | 429 | **00:00 – 16:27** |
-| 2026-08-24 | 1,271 | — |
-| 2026-08-25 | 1,268 | — |
-| 2026-08-26 | 1,278 | — |
-| 2026-08-27 | 62 | 00:00 – 06:24, log ends 07:02 |
+
+| Day        | Uploaded | Hours with zero uploads       |
+| ---------- | -------- | ----------------------------- |
+| 2026-08-15 | 626      | 00:00 – 12:53                 |
+| 2026-08-16 | 1,275    | —                             |
+| 2026-08-17 | 1,273    | —                             |
+| 2026-08-18 | **0**    | **entire day**                |
+| 2026-08-19 | 774      | 00:00 – 09:20                 |
+| 2026-08-20 | 1,272    | —                             |
+| 2026-08-21 | 1,276    | —                             |
+| 2026-08-22 | 1,274    | —                             |
+| 2026-08-23 | 429      | **00:00 – 16:27**             |
+| 2026-08-24 | 1,271    | —                             |
+| 2026-08-25 | 1,268    | —                             |
+| 2026-08-26 | 1,278    | —                             |
+| 2026-08-27 | 62       | 00:00 – 06:24, log ends 07:02 |
+
 
 Four outage windows, **~69 hours total**:
 
@@ -236,20 +268,24 @@ Four outage windows, **~69 hours total**:
 
 ---
 
+
+
 ## Finding 3 — Retention deletes are normal (corrects the earlier report)
 
 12,706 `.mkv` objects were deleted from Wasabi during the corpus. All were July footage, and the deletion date tracks the footage date with a consistent ~30-day lag:
 
-| Delete date | Footage deleted | Segments | Lag |
-|---|---|---|---|
-| 2026-08-15 | 2026/07/13 – 07/16 | 3,789 | 30–33 d (catch-up) |
-| 2026-08-17 | 2026/07/18 | 1,271 | 30 d |
-| 2026-08-19 | 2026/07/19 – 07/20 | 2,541 | 30–31 d (catch-up) |
-| 2026-08-20 | 2026/07/21 | 894 | 30 d |
-| 2026-08-21 | 2026/07/22 | 1,250 | 30 d |
-| 2026-08-23 | 2026/07/24 | 1,266 | 30 d |
-| 2026-08-25 | 2026/07/26 | 1,272 | 30 d |
-| 2026-08-27 | 2026/07/28 | 333 | 30 d |
+
+| Delete date | Footage deleted    | Segments | Lag                |
+| ----------- | ------------------ | -------- | ------------------ |
+| 2026-08-15  | 2026/07/13 – 07/16 | 3,789    | 30–33 d (catch-up) |
+| 2026-08-17  | 2026/07/18         | 1,271    | 30 d               |
+| 2026-08-19  | 2026/07/19 – 07/20 | 2,541    | 30–31 d (catch-up) |
+| 2026-08-20  | 2026/07/21         | 894      | 30 d               |
+| 2026-08-21  | 2026/07/22         | 1,250    | 30 d               |
+| 2026-08-23  | 2026/07/24         | 1,266    | 30 d               |
+| 2026-08-25  | 2026/07/26         | 1,272    | 30 d               |
+| 2026-08-27  | 2026/07/28         | 333      | 30 d               |
+
 
 The storage sits at its capacity ceiling — free space pinned at ~63.8 GB against ~80 GB/day of ingest — so Nx trims one oldest day for each new day. Thirty days is simply the depth that fits.
 
@@ -257,13 +293,15 @@ The storage sits at its capacity ceiling — free space pinned at ~63.8 GB again
 
 `logs8-investigation-report.md` attributed these deletes to local buffer overflow. The correlation does not hold — delete rate is flat at ~1,270/day regardless of buffer state, and the worst buffer-crisis days show *fewer* deletes than quiet days:
 
-| Day | Buffer-full events | `.mkv` deleted from S3 |
-|---|---|---|
-| 2026-08-17 | **0** | 1,271 |
-| 2026-08-21 | **0** | 1,250 |
-| 2026-08-25 | **0** | 1,272 |
-| 2026-08-23 | **45,958** | 1,266 |
-| 2026-08-27 | **15,129** | 333 |
+
+| Day        | Buffer-full events | `.mkv` deleted from S3 |
+| ---------- | ------------------ | ---------------------- |
+| 2026-08-17 | **0**              | 1,271                  |
+| 2026-08-21 | **0**              | 1,250                  |
+| 2026-08-25 | **0**              | 1,272                  |
+| 2026-08-23 | **45,958**         | 1,266                  |
+| 2026-08-27 | **15,129**         | 333                    |
+
 
 Buffer overflow is a *downstream symptom* of Finding 2, not a cause of deletion. The deletes are routine server-issued retention calls arriving at ~1/minute:
 
@@ -278,9 +316,11 @@ One real side effect: after an outage, retention **catches up by deleting severa
 
 ---
 
+
+
 ## Verified healthy
 
-The catalog rotation defect from `nxdb-catalog-timeline-fix.md` **is fixed in `beta-global-2.5`**. The premature 16-byte upload no longer occurs:
+The catalog rotation defect from `nxdb-catalog-timeline-fix.md` **is fixed in** `beta-global-2.5`. The premature 16-byte upload no longer occurs:
 
 ```
 00:01:04  S3IODevice::flush    nxdb create deferred upload, size=,16,  …--73.nxdb   ← deferred, not sent
@@ -289,15 +329,17 @@ The catalog rotation defect from `nxdb-catalog-timeline-fix.md` **is fixed in `b
 00:01:04  s3Client::removeUrl  deleted file                            …--72.nxdb   ← only after successor durable
 ```
 
-| Check | Result |
-|---|---|
-| `.nxdb` generations | 19 rotations, `--59` → `--78`, all uploads 376–443 KB, never 16 B on S3 |
-| Delete ordering | Prior generation removed only **after** successor uploads successfully |
-| `No previous DB files found` | 0 occurrences |
-| `S3FileInfoIterator` path corruption | 0 hits (3M+ traversal entries, no malformed paths) |
-| Upload race `File do not exist to uplaod` | 0 hits |
-| S3 / network upload failures | **0** — Wasabi connectivity is not a factor |
-| Missing `_db_ref.guid` (404 each init) | **Expected** — backup-role storage without `cap::DBReady`; probe with no following write is correct |
+
+| Check                                     | Result                                                                                              |
+| ----------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| `.nxdb` generations                       | 19 rotations, `--59` → `--78`, all uploads 376–443 KB, never 16 B on S3                             |
+| Delete ordering                           | Prior generation removed only **after** successor uploads successfully                              |
+| `No previous DB files found`              | 0 occurrences                                                                                       |
+| `S3FileInfoIterator` path corruption      | 0 hits (3M+ traversal entries, no malformed paths)                                                  |
+| Upload race `File do not exist to uplaod` | 0 hits                                                                                              |
+| S3 / network upload failures              | **0** — Wasabi connectivity is not a factor                                                         |
+| Missing `_db_ref.guid` (404 each init)    | **Expected** — backup-role storage without `cap::DBReady`; probe with no following write is correct |
+
 
 Complete error inventory across 229 files: 19 `.nxdb` 404s and 18 `_db_ref.guid` 404s (both expected probes), 18 `Invalid json` on `S3Storage` ctor (harmless noise), and 5 one-off local file/lock errors.
 
@@ -305,37 +347,64 @@ Complete error inventory across 229 files: 19 `.nxdb` 404s and 18 `_db_ref.guid`
 
 ---
 
+
+
 ## Other contributing issues
 
-**Shared staging directory.** Every init loads `UploadList.json` for **10 different server/bucket configs** (`nx-21`, `nx-22`, `nx-22-june11`, `nx-old-june18`, `perf-may04-*`, `perf-may08-back-*`, `wsc-apl24-*`, `wsc-apl28-03`, `wsc-apl28-04`, `wsc-apl30-*`) from one `C:\Windows\TEMP\Nx Storage` root. At 63 MB/segment the 2 GB buffer holds only ~30 segments before any other config consumes space.
+**Shared staging directory.** Every init loads `UploadList.json` for **10 different server/bucket configs** (`nx-21`, `nx-22`, `nx-22-june11`, `nx-old-june18`, `perf-may04-`*, `perf-may08-back-*`, `wsc-apl24-*`, `wsc-apl28-03`, `wsc-apl28-04`, `wsc-apl30-*`) from one `C:\Windows\TEMP\Nx Storage` root. At 63 MB/segment the 2 GB buffer holds only ~30 segments before any other config consumes space.
 
-**`ClearMemoryManager` races** (5 occurrences) — cleanup deleting a file Nx is opening. Example, Aug 19 10:40:45: `Delete File: …71355.mkv` → `S3Storage::open` same file → `Failed to get file size INVALID_HANDLE_VALUE` → `Failed to open local file!!` → plugin reload. Dump `…_19088.dmp` at 10:40:48 confirms this as an access violation inside `s3_storage_plugin.dll + 0xCD84` (read of `0xFFFFFFFFFFFFFFFF`), not only a soft reload. Secondary to Finding 2, but a real crash path under load.
+`ClearMemoryManager` **races** (5 occurrences) — cleanup deleting a file Nx is opening. Example, Aug 19 10:40:45: `Delete File: …71355.mkv` → `S3Storage::open` same file → `Failed to get file size INVALID_HANDLE_VALUE` → `Failed to open local file!!` → plugin reload. Dump `…_19088.dmp` at 10:40:48 confirms this as an access violation inside `s3_storage_plugin.dll + 0xCD84` (read of `0xFFFFFFFFFFFFFFFF`), not only a soft reload. Secondary to Finding 2, but a real crash path under load.
 
 ---
 
+
+
 ## Remediation plan
+
+
 
 ### Phase 1 — Recover the orphaned archive (Finding 1)
 
 Order matters here.
 
-1. **Raise the declared capacity in `s3.config` first.** Once the catalog knows about June 18 – July 12, retention will see the storage far over its limit and immediately purge the oldest footage to get back under — which is exactly the data being recovered. Reindexing without headroom will delete it for real.
+1. **Raise the declared capacity in** `s3.config` **first.** Once the catalog knows about June 18 – July 12, retention will see the storage far over its limit and immediately purge the oldest footage to get back under — which is exactly the data being recovered. Reindexing without headroom will delete it for real.
 2. **Run "Rebuild archive index"** on the Wasabi storage (Nx Desktop → Server Settings → Storage Management → Reindex archive). The safety gate from `log-signatures.md` — do not reindex until `S3FileInfoIterator` corruption is ruled out — is **satisfied**: zero corruption hits.
 3. Verify June 18 – July 12 appears on the timeline and confirm retention settles at the intended depth.
 4. Confirm the intended retention depth server-side; plugin logs cannot show Nx's configured max-days.
 
+
+
 ### Phase 2 — Code fixes for the sync defect (Finding 2, P0)
 
-1. **Serialize the `.nxdb` and `.mkv` upload paths.** Route the `S3IODevice::flush` `.nxdb` upload through the same queue as `.mkv`, or guard both with a single `s3Client` mutex. This is the direct fix for the race.
+1. **Serialize the** `.nxdb` **and** `.mkv` **upload paths.** Route the `S3IODevice::flush` `.nxdb` upload through the same queue as `.mkv`, or guard both with a single `s3Client` mutex. This is the direct fix for the race.
 2. **Make the dispatcher self-healing.** `addFileToUploadInQueue` / `fileUploadThread` must detect a dead worker and respawn it. A watchdog that alarms when `added file to uploaded` occurs without a matching `added file in queue` within N seconds would have caught all four outages within a minute.
 3. **Never discard a pending backlog on restart.** `ClearMemoryManager::freeTempStorage` should re-queue unuploaded `.mkv` files rather than delete them.
 4. **Decouple buffer state from write refusal.** Per `space-and-buffer.md`, buffer-full should apply `IODevice::write()` back-pressure or fail `isAvailable()` — not spin `S3Storage::open` 45,958 times while silently dropping recording.
-5. **Harden `ClearMemoryManager`** so it never deletes files that are open or queued for upload. Dump `…_19088.dmp` shows the race ends as an AV in `s3_storage_plugin.dll + 0xCD84`.
-6. **~~Analyse the stall-terminating dumps~~ (done 2026-08-31).** `sent_…_9568.dmp` and `sent_…_22324.dmp` are both `0xC0000005` NULL writes at `nx_utils.dll + 0x1F0B5`, taken while `S3Storage::open` was spinning on `Local Folder is full!!`. Follow-up with symbols: resolve `nx_utils.dll + 0x1F0B5` and `s3_storage_plugin.dll + 0xCD84` to source functions; check whether the shared Media Server site is a null callback / destroyed object left by the dead upload dispatcher.
+5. **Harden** `ClearMemoryManager` so it never deletes files that are open or queued for upload. Dump `…_19088.dmp` shows the race ends as an AV in `s3_storage_plugin.dll + 0xCD84`.
+6. ~~**Analyse the stall-terminating dumps~~ (done 2026-08-31).** `sent_…_9568.dmp` and `sent_…_22324.dmp` are both `0xC0000005` NULL writes at `nx_utils.dll + 0x1F0B5`, taken while `S3Storage::open` was spinning on `Local Folder is full!!`. Follow-up with symbols: resolve `nx_utils.dll + 0x1F0B5` and `s3_storage_plugin.dll + 0xCD84` to source functions; check whether the shared Media Server site is a null callback / destroyed object left by the dead upload dispatcher.
+
+
+
+#### Phase 2 status — `beta-global-2.7` (code as of 2026-09-07, not yet deployed)
+
+Version history: `2.5` = catalog rotation fix (field build in logs8/logs9); `2.6` = first-cut dispatcher/backlog/ClearMemoryManager changes (commit `dbf32e5`, never shipped); `2.7` = this build, which supersedes 2.6 with the items below. Field confirmation is still outstanding: every dump in `logs9` (Aug 27 – Sep 1) came from the **2.5** binary, so nothing observed so far exercises these changes. Verify with the 2.7 signatures listed in `.cursor/skills/wasabi-nx-troubleshoot/log-signatures.md` (issues 1 and 8) across at least seven midnights.
+
+
+| Item                            | State                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        | Where                                                                            |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------- |
+| 1. Serialize `.nxdb` / `.mkv`   | Done. Generational `.nxdb` goes through the `.mkv` queue (`uploadFile nxdb queued`) from a flush-time snapshot (`<file>.upload`) so a growing catalog cannot be PUT torn; `uploadFile` no longer holds `s3Client::m_mutex` across `PutObject`.                                                                                                                                                                                                                                                                                                               | `S3IODevice::flush`, `fileUploadThread`                                          |
+| 2. Self-healing dispatcher      | Done. Watchdog moved to the keep-alive Timer thread (fires even if the dispatcher hangs); escalates: clear in-flight slots → `ThreadPool::ensureWorkers` → replace dispatcher thread by generation after 3 stalled minutes (`Upload dispatcher recovered`). `ThreadPool` keeps ≥ 1 worker, drains before retiring, never joins a busy worker, spawns synchronously on enqueue, and catches all exceptions (previously an escaping exception would `std::terminate` the Media Server). Saturated in-flight set is now visible at INFO (`Uploading is bussy`). | `s3Client::uploadWatchdog`, `restartUploadDispatcher`, `ThreadPool.cpp`          |
+| 3. Never discard backlog        | Done. `freeTempStorage` preserves staged files; `requeueStagedUploads` now really re-queues closed orphan segments (`<epoch>_<duration>.mkv` not in `UploadList.json`) and deletes only segments that were still open at the crash; runs at connect and every 10 min.                                                                                                                                                                                                                                                                                        | `ClearMemoryManager::freeTempStorage`, `s3Client::requeueStagedUploads`          |
+| 4. Buffer state ≠ write refusal | Done. `aux::StagingUsage`: per-bucket subtree, 5 s cache (was a recursive walk of the shared root on every `write()`), disk-free floor, 85 % resume hysteresis, never throws; `getCapabilities()` wrapped so no exception crosses the ABI. `isAvailable()`/`write()`/`open()` use the same predicate; one `Local buffer full` / `Local buffer drained` pair per episode instead of a flood.                                                                                                                                                                  | `common.cpp`, `S3Storage::isAvailable/open/getCapabilities`, `S3IODevice::write` |
+| 5. Harden `ClearMemoryManager`  | Done (since 2.6): `isProtectedFile` skips open/queued files; no synchronous `clearMemory` under lock.                                                                                                                                                                                                                                                                                                                                                                                                                                                        | `ClearMemoryManager.cpp`                                                         |
+| 6. Dump symbolication           | Open — needs Nx PDBs for `nx_utils.dll + 0x1F0B5`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           | —                                                                                |
+
+
+Note on the root cause wording above: `added file in queue` is logged by the **pool worker when it runs the task**, not when `fileUploadThread` enqueues it. The Aug 23/27 signature is therefore also consistent with a live dispatcher whose `m_workfiles` slots were saturated while tasks sat in a worker-less `ThreadPool` (`minThreads` was 0 and the manager blocked in `join()` on a mid-upload worker). The 2.7 changes cover both the dead-thread and the starved-pool variants.
 
 ### Phase 3 — Operational mitigations (immediate, no code change)
 
-1. **Raise `local_buffer`** to 20 GB+ and move staging off `C:\Windows\TEMP` to a dedicated data disk. At 63 MB/segment, 2 GB is ~30 minutes of headroom — far too little to ride out a stall.
+1. **Raise** `local_buffer` to 20 GB+ and move staging off `C:\Windows\TEMP` to a dedicated data disk. At 63 MB/segment, 2 GB is ~30 minutes of headroom — far too little to ride out a stall.
 2. **Give each server config its own staging root** instead of sharing one folder across 10 configs.
 3. **Interim watchdog:** alert if no `Successfully uploaded file …mkv` appears for >10 minutes, and restart the Media Server on trigger. Every outage here was restart-recoverable; they lasted 6–33 h only because nothing detected them.
 4. **Check Wasabi object versioning** before treating the deleted July footage or the missing August hours as unrecoverable.
@@ -343,32 +412,41 @@ Order matters here.
 
 ---
 
+
+
 ## Data impact summary
 
-| Surface | Impact |
-|---|---|
-| **Recoverable** | ~25 days (2026-06-18 → 2026-07-12) in the bucket, unindexed. Recoverable by reindex, provided capacity is raised first. |
-| **Permanently lost** | ~3,250 segments (~206 GB, ~21% of Aug 15–26) never uploaded. Includes 114 segments discarded from temp on restart. Check main storage. |
-| **Deleted by design** | 12,706 segments, July 13–28, ~30-day retention at capacity. Check Wasabi versioning if recovery is desired. |
-| **Availability** | ~69 h of no archive writes across 4 windows; 5 Media Server crashes (all `0xC0000005`; 4× `nx_utils.dll + 0x1F0B5`, 1× `s3_storage_plugin.dll + 0xCD84`); longest outage ~33 h (Aug 18 → 19). |
-| **Catalog** | Healthy in the current build. Generations `--59` → `--78`, correct sizes and delete ordering. |
+
+| Surface               | Impact                                                                                                                                                                                        |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Recoverable**       | ~25 days (2026-06-18 → 2026-07-12) in the bucket, unindexed. Recoverable by reindex, provided capacity is raised first.                                                                       |
+| **Permanently lost**  | ~3,250 segments (~206 GB, ~21% of Aug 15–26) never uploaded. Includes 114 segments discarded from temp on restart. Check main storage.                                                        |
+| **Deleted by design** | 12,706 segments, July 13–28, ~30-day retention at capacity. Check Wasabi versioning if recovery is desired.                                                                                   |
+| **Availability**      | ~69 h of no archive writes across 4 windows; 5 Media Server crashes (all `0xC0000005`; 4× `nx_utils.dll + 0x1F0B5`, 1× `s3_storage_plugin.dll + 0xCD84`); longest outage ~33 h (Aug 18 → 19). |
+| **Catalog**           | Healthy in the current build. Generations `--59` → `--78`, correct sizes and delete ordering.                                                                                                 |
+
 
 ---
+
+
 
 ## Appendix — method and key evidence
 
 **Signature analysis** followed the `wasabi-nx-troubleshoot` skill workflow; catalog and `db_ref.guid` semantics per `wasabi-nx-storagedb`. All counts were re-measured on this corpus rather than carried over from prior reports.
 
-| File | Why it matters |
-|---|---|
-| `log_2026-08-23_05-52-25.txt` | Dispatcher death at 00:00:27; buffer-full onset 00:33 |
-| `log_2026-08-27.txt` | Dispatcher death at 00:00:26; crash 06:22; clean recovery after |
-| `log_2026-08-23_16-26-09.txt` | Aug 23 crash tail inside buffer-full loop |
-| `log_2026-08-15_23-54-10.txt` | June 18 footage listed from S3 with real object sizes |
-| `log_2026-08-17_01-07-42.txt` | Full scan pass — 16 cameras, month/day tree, `low_quality` empty |
-| `log_2026-08-19_10-27-49.txt` | Post-outage retention catch-up (2 footage-days) |
-| `crash1/crash1/*.dmp` | 5 dumps parsed: 4× AV NULL-write at `nx_utils.dll + 0x1F0B5` (incl. Aug 23/27 stall ends); 1× AV in `s3_storage_plugin.dll + 0xCD84` (Aug 19 ClearMemoryManager race) |
+
+| File                          | Why it matters                                                                                                                                                        |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `log_2026-08-23_05-52-25.txt` | Dispatcher death at 00:00:27; buffer-full onset 00:33                                                                                                                 |
+| `log_2026-08-27.txt`          | Dispatcher death at 00:00:26; crash 06:22; clean recovery after                                                                                                       |
+| `log_2026-08-23_16-26-09.txt` | Aug 23 crash tail inside buffer-full loop                                                                                                                             |
+| `log_2026-08-15_23-54-10.txt` | June 18 footage listed from S3 with real object sizes                                                                                                                 |
+| `log_2026-08-17_01-07-42.txt` | Full scan pass — 16 cameras, month/day tree, `low_quality` empty                                                                                                      |
+| `log_2026-08-19_10-27-49.txt` | Post-outage retention catch-up (2 footage-days)                                                                                                                       |
+| `crash1/crash1/*.dmp`         | 5 dumps parsed: 4× AV NULL-write at `nx_utils.dll + 0x1F0B5` (incl. Aug 23/27 stall ends); 1× AV in `s3_storage_plugin.dll + 0xCD84` (Aug 19 ClearMemoryManager race) |
+
 
 **Superseded documents**
 
 - `logs8-investigation-report.md` — earlier analysis. Its primary verdict (buffer-driven cloud purge) is corrected by Finding 3; it also states no crash dumps were included, but five are present.
+

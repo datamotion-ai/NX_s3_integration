@@ -385,17 +385,10 @@ namespace nx_spl
                 else
                 {
                     // Buffer-full is a throughput/availability fault, not archive capacity.
-                    const uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
-                    if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
+                    // StagingUsage is cached, per-bucket, hysteretic and logs the enter/exit transitions.
+                    if(aux::StagingUsage::instance().isFull(m_impl.get()->bucket(),
+                        ServerManager::getInstance()->getLocalBufferSize()))
                     {
-                        static std::chrono::steady_clock::time_point s_lastBufLog;
-                        const auto now = std::chrono::steady_clock::now();
-                        if(s_lastBufLog.time_since_epoch().count() == 0
-                            || now - s_lastBufLog >= std::chrono::seconds(30))
-                        {
-                            INFOLOG("Local buffer full, storage temporarily unavailable", localFolderSize);
-                            s_lastBufLog = now;
-                        }
                         m_available = false;
                     }
                 }
@@ -442,8 +435,9 @@ namespace nx_spl
             {
                 if(flags & io::WriteOnly)
                 {
-                    uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
-                    if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
+                    if((m_impl.get() != nullptr)
+                        && aux::StagingUsage::instance().isFull(m_impl.get()->bucket(),
+                            ServerManager::getInstance()->getLocalBufferSize()))
                     {
                         // Rate-limit: Media Server may retry open tightly; avoid log floods / AV storms.
                         static std::chrono::steady_clock::time_point s_lastFullLog;
@@ -557,7 +551,8 @@ namespace nx_spl
                 
                 // spaceFullSet = false;
                 
-            uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
+            // Cached (whole staging root) — this is only the not-yet-uploaded share of the bucket.
+            uintmax_t localFolderSize = nx_spl::aux::StagingUsage::instance().bytes("");
             if(m_impl.get() != nullptr)
             {
                 uint64_t totalSize = m_impl.get()->remoteFolderSize();
@@ -588,15 +583,29 @@ namespace nx_spl
     int STORAGE_METHOD_CALL nx_spl::S3Storage::getCapabilities() const
     {
         DEBUGLOG("S3Storage::getCapabilities");
-        int ret = 0;
-        uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
-        if(localFolderSize < ServerManager::getInstance()->getLocalBufferSize())
+        int ret = cap::ReadFile | cap::ListFile | cap::RemoveFile;
+        // ABI entry point: nothing here may throw into the Media Server.
+        try
         {
+            bool full = false;
+            if(m_impl.get() != nullptr)
+            {
+                full = aux::StagingUsage::instance().isFull(m_impl.get()->bucket(),
+                    ServerManager::getInstance()->getLocalBufferSize());
+            }
+            if(!full)
+                ret |= cap::WriteFile;
+        }
+        catch(const std::exception& e)
+        {
+            ERRORLOG("Exception Error:", e.what());
             ret |= cap::WriteFile;
         }
-        ret |= cap::ReadFile;
-        ret |= cap::ListFile;
-        ret |= cap::RemoveFile;
+        catch(...)
+        {
+            ERRORLOG("Unknown error in getCapabilities");
+            ret |= cap::WriteFile;
+        }
         return ret;
     }
 
@@ -796,6 +805,12 @@ namespace nx_spl
                     if (entry.is_regular_file())
                     {
                         std::string fileName = entry.path().filename().string();
+                        // Plugin-internal staging artefacts are never part of the Nx archive.
+                        if(fileName.find(NXDB_UPLOAD_SNAPSHOT_SUFFIX) != std::string::npos
+                            || fileName.find(FILE_UPLOAD_JSON) != std::string::npos)
+                        {
+                            continue;
+                        }
                         line.append(fileName);
                         objects.push_back(fileName);
                         line.append(",");
@@ -1183,10 +1198,11 @@ namespace nx_spl
 
             // Back-pressure when staging is full (mkv only) — availability/I/O fault, not space API.
             if((m_mode & io::WriteOnly)
+                && (m_impl.get() != nullptr)
                 && m_localfile.fullPath.find(".mkv") != std::string::npos)
             {
-                const uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
-                if(localFolderSize > ServerManager::getInstance()->getLocalBufferSize())
+                if(aux::StagingUsage::instance().isFull(m_impl.get()->bucket(),
+                    ServerManager::getInstance()->getLocalBufferSize()))
                 {
                     if (ecode)
                         *ecode = error::UnknownError;
@@ -1470,6 +1486,37 @@ namespace nx_spl
                 {
                     // Async path — same queue as .mkv — avoids holding s3Client::m_mutex across PutObject
                     // on the Media Server thread (P0 midnight race with renameFile).
+                    //
+                    // The catalog keeps growing while the worker uploads it, so PUT a consistent
+                    // snapshot instead of the live file: write <file>.upload.tmp, then rename it to
+                    // <file>.upload (the worker prefers the snapshot when present). flush() is only
+                    // reached with m_file closed, so the copy is a coherent image.
+                    {
+                        const std::string snapshot = m_localfile.fullPath + NXDB_UPLOAD_SNAPSHOT_SUFFIX;
+                        const std::string snapshotTmp = snapshot + ".tmp";
+                        std::error_code ec;
+                        fs::copy_file(m_localfile.fullPath, snapshotTmp, fs::copy_options::overwrite_existing, ec);
+                        if(ec)
+                        {
+                            ERRORLOG("nxdb snapshot copy failed; worker will upload live file", m_uri, ec.message());
+                            fs::remove(snapshotTmp, ec);
+                        }
+                        else
+                        {
+                            fs::rename(snapshotTmp, snapshot, ec);
+                            if(ec)
+                            {
+                                // Snapshot currently being read by the worker. Leave the newer image
+                                // as .tmp: the worker promotes and re-queues it after its PUT completes.
+                                INFOLOG("nxdb snapshot in use, newer image kept as .tmp", m_uri, ec.message());
+                            }
+                            else
+                            {
+                                DEBUGLOG("nxdb snapshot written", snapshot, fileBytes);
+                            }
+                        }
+                    }
+
                     if(m_impl.get()->isFileInUploadList(m_uri))
                     {
                         INFOLOG("nxdb already queued for upload, size=", fileBytes, m_uri);

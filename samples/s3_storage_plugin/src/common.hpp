@@ -19,6 +19,8 @@
 #include <memory>
 #include <stdint.h>
 #include <mutex>
+#include <map>
+#include <chrono>
 
 #if defined(__linux__) || defined(__APPLE__)
 #   include <sys/stat.h>
@@ -43,10 +45,25 @@
 
 class s3Client;
 
-#define VERSION "beta-global-2.6"
+#define VERSION "beta-global-2.7"
 
 /** Seconds without upload progress before clearing stale in-flight slots / warning. */
 #define UPLOAD_STALL_WATCHDOG_SECONDS 60
+/** Seconds a worker may stay mid-PUT before the watchdog treats it as hung rather than slow. */
+#define UPLOAD_HUNG_WORKER_SECONDS 300
+/** Consecutive watchdog ticks (1/min) without progress before the dispatcher thread is replaced. */
+#define UPLOAD_STALL_REBUILD_TICKS 3
+/** Interval between orphan-staging scans (requeue closed segments, drop incomplete ones). */
+#define ORPHAN_SCAN_INTERVAL_SECONDS 600
+/** A staged file must be at least this old before it is treated as an orphan candidate. */
+#define ORPHAN_MIN_AGE_SECONDS 120
+
+/** Local staging back-pressure: full above local_buffer, resumes below this fraction of it. */
+#define BUFFER_RESUME_RATIO 0.85
+/** Refuse staging writes when the staging volume has less free space than this, regardless of local_buffer. */
+#define STAGING_MIN_DISK_FREE_BYTES (200ULL * 1024 * 1024)
+/** Cache window for staging usage measurement (avoid a recursive walk per write()). */
+#define STAGING_USAGE_REFRESH_SECONDS 5
 
 #ifdef _MSC_VER
 #   define NOEXCEPT
@@ -64,6 +81,8 @@ class s3Client;
 #define MIN_NXDB_BYTES 4096
 /** Re-upload growing catalog after this much additional local growth since last successful PUT. */
 #define NXDB_UPLOAD_GROWTH_BYTES (64 * 1024)
+/** Consistent copy of a generational .nxdb taken at flush() time; the worker PUTs this, not the live file. */
+#define NXDB_UPLOAD_SNAPSHOT_SUFFIX ".upload"
 
 #define ENV_CONFIG_FILE "env.config"
 #define FILE_UPLOAD_JSON "UploadList.json"
@@ -373,6 +392,48 @@ namespace nx_spl
 
         /** Build *--(N+1).nxdb from *--N.nxdb; empty string if path is not generational. */
         std::string successorGenerationalNxdb(const std::string& path);
+
+        /** True for a closed Nx segment name: <epoch_ms>_<duration_ms>.mkv (open segments lack _<duration>). */
+        bool isClosedSegmentName(const std::string& fileName);
+
+        /**
+         * Cached, non-throwing view of local staging usage used for write back-pressure.
+         *
+         * - Measures the per-bucket subtree (<staging>/<bucket>) so one config's leftovers do not
+         *   count against another; scope "" measures the whole staging root.
+         * - Re-walks the tree at most every STAGING_USAGE_REFRESH_SECONDS (a full recursive walk
+         *   per write() was the previous behaviour).
+         * - isFull() has hysteresis: full above limit, resumes below limit * BUFFER_RESUME_RATIO;
+         *   also full when the staging volume itself has < STAGING_MIN_DISK_FREE_BYTES free.
+         * - Never throws: on filesystem errors the last good value is returned.
+         */
+        class StagingUsage
+        {
+        public:
+            static StagingUsage& instance();
+
+            uintmax_t bytes(const std::string& scope);
+            uintmax_t diskFree();
+            bool isFull(const std::string& scope, uint64_t limitBytes);
+            /** Force a re-measure on next query (e.g. after bulk deletes). */
+            void invalidate();
+
+        private:
+            struct Entry
+            {
+                uintmax_t bytes = 0;
+                std::chrono::steady_clock::time_point measuredAt{};
+                bool full = false;
+            };
+            StagingUsage() = default;
+            void refreshLocked(const std::string& scope, Entry& entry);
+            void refreshDiskLocked();
+
+            std::mutex m_mutex;
+            std::map<std::string, Entry> m_entries;
+            uintmax_t m_diskFree = 0;
+            std::chrono::steady_clock::time_point m_diskMeasuredAt{};
+        };
     }
 
     /** Deferred prior-generation .nxdb cloud removes (shared by flush and async upload completion). */

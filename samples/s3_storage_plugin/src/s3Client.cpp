@@ -33,11 +33,15 @@ m_reUpdateSpace(false),
 m_impl(nullptr),
 m_spaceImpl(nullptr),
 m_space(0),
-m_threadPool(0,10),
+m_threadPool(1,10),
 m_uploadThreadAlive(false),
 m_lastUploadProgress(std::chrono::steady_clock::now()),
 m_lastQueuedToUploaded(std::chrono::steady_clock::now()),
-m_pendingUploadWatchdog(false)
+m_pendingUploadWatchdog(false),
+m_dispatcherGeneration(0),
+m_dispatcherExits(0),
+m_lastBusyLog(),
+m_lastOrphanScan()
 {
     INFOLOG("s3Client",url,accessKey,secreatKey,bucket);
 }
@@ -188,7 +192,7 @@ bool s3Client::initializeConnection()
             m_running = true;
             m_reUpdateSpace = false;
             m_uploadThreadAlive = true;
-            uploadThread = std::thread(&s3Client::fileUploadThread, this);
+            uploadThread = std::thread(&s3Client::fileUploadThread, this, m_dispatcherGeneration.load());
             spaceThread = std::thread(&s3Client::updateRemoteFolderSize, this);
             m_keepAliveTimer.start(this,&s3Client::keepAliveActivator,ONE_MINUTE);
             INFOLOG("---->SuccessFully initialise s3 connection with host: ", m_url);
@@ -849,6 +853,8 @@ void s3Client::stopThread()
         std::lock_guard<std::mutex> lock(m_mutex);
         m_running = false;
     }
+    // Stop the timer first so the watchdog cannot restart the dispatcher while we tear down.
+    m_keepAliveTimer.stop();
     m_threadPool.shutdown();
     if(uploadThread.joinable()) 
     {
@@ -858,7 +864,6 @@ void s3Client::stopThread()
     {
         spaceThread.join();
     }
-    m_keepAliveTimer.stop();
     m_uploadThreadAlive = false;
     INFOLOG("stopThread Done");
 }
@@ -882,17 +887,21 @@ void s3Client::ensureUploadDispatcherRunning()
     if(!running || alive)
         return;
 
-    // m_uploadThreadAlive is cleared only on thread exit, so join cannot block on a live loop.
+    // m_uploadThreadAlive is cleared only after the loop has exited, so joining under m_mutex
+    // cannot deadlock; holding the lock keeps this serialized with restartUploadDispatcher().
     INFOLOG("Upload dispatcher not alive; attempting respawn");
     try
     {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if(m_uploadThreadAlive.load())
+            return;
         if(uploadThread.joinable())
             uploadThread.join();
-        std::lock_guard<std::mutex> lock(m_mutex);
         if(m_running && !m_uploadThreadAlive.load())
         {
             m_uploadThreadAlive = true;
-            uploadThread = std::thread(&s3Client::fileUploadThread, this);
+            ++m_dispatcherGeneration;
+            uploadThread = std::thread(&s3Client::fileUploadThread, this, m_dispatcherGeneration.load());
             INFOLOG("Upload dispatcher respawned");
         }
     }
@@ -900,6 +909,131 @@ void s3Client::ensureUploadDispatcherRunning()
     {
         m_uploadThreadAlive = false;
         ERRORLOG("Failed to respawn upload dispatcher:", e.what());
+    }
+}
+
+void s3Client::restartUploadDispatcher()
+{
+    std::thread stale;
+    const unsigned exitsBefore = m_dispatcherExits.load();
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if(!m_running)
+            return;
+        ++m_dispatcherGeneration;
+        stale = std::move(uploadThread);
+    }
+
+    // Give the stale dispatcher a moment to observe the generation bump and exit.
+    // If it is truly hung we must not block the Timer thread on it.
+    bool exited = false;
+    for(int i = 0; i < 50; ++i)
+    {
+        if(m_dispatcherExits.load() != exitsBefore || !m_uploadThreadAlive.load())
+        {
+            exited = true;
+            break;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    if(stale.joinable())
+    {
+        if(exited)
+        {
+            stale.join();
+        }
+        else
+        {
+            ERRORLOG("Stale upload dispatcher did not exit; detaching it", m_bucket);
+            stale.detach();
+        }
+    }
+
+    try
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if(!m_running)
+            return;
+        m_workfiles.clear();
+        m_uploadThreadAlive = true;
+        uploadThread = std::thread(&s3Client::fileUploadThread, this, m_dispatcherGeneration.load());
+        INFOLOG("Upload dispatcher recovered", m_bucket, "generation", m_dispatcherGeneration.load());
+    }
+    catch(const std::exception& e)
+    {
+        m_uploadThreadAlive = false;
+        ERRORLOG("Failed to restart upload dispatcher:", e.what());
+    }
+}
+
+void s3Client::uploadWatchdog()
+{
+    bool running = false;
+    bool storageOk = false;
+    std::chrono::steady_clock::time_point lastProgress;
+    size_t workfiles = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        running = m_running;
+        storageOk = m_storageAvailable;
+        lastProgress = m_lastUploadProgress;
+        workfiles = m_workfiles.size();
+    }
+    if(!running || !storageOk)
+    {
+        m_stallTicks = 0;
+        return;
+    }
+    if(!uploadListHasPendingFiles())
+    {
+        m_stallTicks = 0;
+        return;
+    }
+
+    const auto idle = std::chrono::duration_cast<std::chrono::seconds>(
+        std::chrono::steady_clock::now() - lastProgress).count();
+    if(idle < UPLOAD_STALL_WATCHDOG_SECONDS)
+    {
+        m_stallTicks = 0;
+        return;
+    }
+
+    const size_t busy = m_threadPool.busyWorkerCount();
+    const int queued = m_threadPool.getWorkingTaskCount();
+    const size_t live = m_threadPool.workerCount();
+
+    // A worker is mid-PUT on a slow link: not a stall until it exceeds the hung-worker bound.
+    if(busy > 0 && idle < UPLOAD_HUNG_WORKER_SECONDS)
+    {
+        INFOLOG("Upload watchdog: slow upload in flight", "idle_s=", idle, "busy=", busy, "queued=", queued);
+        return;
+    }
+
+    ++m_stallTicks;
+    INFOLOG("Upload watchdog: pending uploads without progress",
+            "idle_s=", idle, "busy=", busy, "queued=", queued, "workers=", live,
+            "workfiles=", workfiles, "tick=", m_stallTicks);
+
+    // Stage 1: free the in-flight slots so the dispatcher can re-issue, and make sure the pool
+    // has a runner for anything already queued.
+    {
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if(!m_workfiles.empty())
+        {
+            INFOLOG("Upload watchdog: clearing in-flight slots", m_workfiles.size());
+            m_workfiles.clear();
+        }
+    }
+    m_threadPool.ensureWorkers();
+    ensureUploadDispatcherRunning();
+
+    // Stage 2: the dispatcher is alive but not dispatching — replace it.
+    if(m_stallTicks >= UPLOAD_STALL_REBUILD_TICKS)
+    {
+        INFOLOG("Upload watchdog: dispatcher stalled, restarting", m_bucket);
+        restartUploadDispatcher();
+        m_stallTicks = 0;
+        noteUploadProgress(); // restart the clock for the new dispatcher
     }
 }
 
@@ -925,72 +1059,177 @@ bool s3Client::uploadListHasPendingFiles() const
     return false;
 }
 
+std::vector<std::string> s3Client::uploadListKeys() const
+{
+    std::vector<std::string> keys;
+    nx_spl::aux::FileNameAndPath file = nx_spl::aux::localUniqueFilePath("/"+ m_bucket + FILE_UPLOAD_JSON);
+    std::ifstream inputFile(file.fullPath);
+    if(!inputFile.is_open())
+        return keys;
+    Json::Value root;
+    Json::Reader reader;
+    if(!reader.parse(inputFile, root) || !root.isArray())
+        return keys;
+    for(const auto& jsonObject : root)
+    {
+        if(jsonObject["host"].isString() && (jsonObject["host"].asString() == m_url)  &&
+            jsonObject["bucket"].isString() && (jsonObject["bucket"].asString() == m_bucket) &&
+            jsonObject["files"].isArray())
+        {
+            for(const auto& entry : jsonObject["files"])
+            {
+                if(entry.isString())
+                    keys.push_back(entry.asString());
+            }
+            break;
+        }
+    }
+    return keys;
+}
+
 void s3Client::clearStaleWorkfilesIfStalled()
 {
-    const int queuedTasks = m_threadPool.getWorkingTaskCount();
+    // Slots are stale when nothing has progressed for the watchdog window and no worker is
+    // actually executing. Tasks merely sitting in the pool queue do not count as progress —
+    // that is exactly the starved-pool state that looked like a "dead dispatcher" in logs8.
+    const size_t busy = m_threadPool.busyWorkerCount();
     std::lock_guard<std::mutex> lock(m_mutex);
     if(m_workfiles.empty())
         return;
     const auto now = std::chrono::steady_clock::now();
     if(now - m_lastUploadProgress < std::chrono::seconds(UPLOAD_STALL_WATCHDOG_SECONDS))
         return;
-    if(queuedTasks > 0)
+    if(busy > 0 && now - m_lastUploadProgress < std::chrono::seconds(UPLOAD_HUNG_WORKER_SECONDS))
         return;
-    INFOLOG("Clearing stale upload workfiles after stall", m_workfiles.size());
+    INFOLOG("Clearing stale upload workfiles after stall", m_workfiles.size(), "busy=", busy);
     m_workfiles.clear();
 }
 
 void s3Client::requeueStagedUploads()
 {
-    INFOLOG("s3Client::requeueStagedUploads");
+    INFOLOG("s3Client::requeueStagedUploads", m_bucket);
+    m_lastOrphanScan = std::chrono::steady_clock::now();
     try
     {
-        // Files already in UploadList.json for this host/bucket are drained by fileUploadThread.
-        // freeTempStorage no longer deletes the backlog, so a restart preserves queued .mkv.
-        // Also recover orphans that exist on disk next to keys already listed for this client
-        // (e.g. rename succeeded but JSON append failed mid-flight).
-        nx_spl::aux::FileNameAndPath listFile =
-            nx_spl::aux::localUniqueFilePath("/" + m_bucket + FILE_UPLOAD_JSON);
-        if(!fs::exists(listFile.fullPath))
-            return;
-
-        std::ifstream inputFile(listFile.fullPath);
-        if(!inputFile.is_open())
-            return;
-
-        Json::Value root;
-        Json::Reader reader;
-        if(!reader.parse(inputFile, root) || !root.isArray())
-            return;
-        inputFile.close();
-
-        int pending = 0;
-        for(const auto& jsonObject : root)
+        // 1. Files already in UploadList.json for this host/bucket are drained by fileUploadThread.
+        //    freeTempStorage no longer deletes the backlog, so a restart preserves queued .mkv.
+        std::vector<std::string> listedKeys = uploadListKeys();
+        auto normalizeKey = [](std::string key)
         {
-            if(!(jsonObject["host"].isString() && jsonObject["host"].asString() == m_url
-                && jsonObject["bucket"].isString() && jsonObject["bucket"].asString() == m_bucket
-                && jsonObject["files"].isArray()))
+            std::replace(key.begin(), key.end(), '\\', '/');
+            while(!key.empty() && key[0] == '/')
+                key.erase(0, 1);
+            return key;
+        };
+        std::vector<std::string> listed;
+        listed.reserve(listedKeys.size());
+        int pending = 0;
+        for(const std::string& key : listedKeys)
+        {
+            listed.push_back(normalizeKey(key));
+            nx_spl::aux::FileNameAndPath local = nx_spl::aux::localUniqueFilePath(key);
+            if(fs::exists(local.fullPath))
             {
-                continue;
+                ++pending;
+                INFOLOG("Pending staged upload retained", key);
             }
-            for(const auto& entry : jsonObject["files"])
+            else
             {
-                if(!entry.isString())
-                    continue;
-                const std::string key = entry.asString();
-                nx_spl::aux::FileNameAndPath local = nx_spl::aux::localUniqueFilePath(key);
-                if(fs::exists(local.fullPath))
-                {
-                    ++pending;
-                    INFOLOG("Pending staged upload retained", key);
-                }
-                else
-                {
-                    INFOLOG("UploadList entry missing local file (will be dropped by dispatcher)", key);
-                }
+                INFOLOG("UploadList entry missing local file (will be dropped by dispatcher)", key);
             }
         }
         INFOLOG("requeueStagedUploads pending count", pending);
+
+        // 2. Orphans: .mkv on disk under <staging>/<bucket> that are in no UploadList entry.
+        //    Closed segments (<epoch>_<duration>.mkv) were renamed by Nx and are already in its
+        //    catalog -> requeue them (key = path relative to the staging root).
+        //    Segments without the _<duration> suffix were still open when the process died and
+        //    can never be closed -> delete them so they stop consuming local_buffer.
+        const fs::path root = fs::path(nx_spl::aux::localUniqueFolder()).lexically_normal();
+        const fs::path bucketDir = (root / m_bucket).lexically_normal();
+        std::error_code ec;
+        if(!fs::exists(bucketDir, ec) || ec)
+            return;
+
+        int requeued = 0;
+        int removed = 0;
+        int skippedYoung = 0;
+        const auto now = fs::file_time_type::clock::now();
+        fs::recursive_directory_iterator it(bucketDir, fs::directory_options::skip_permission_denied, ec);
+        fs::recursive_directory_iterator end;
+        if(ec)
+        {
+            ERRORLOG("requeueStagedUploads cannot walk", bucketDir.string(), ec.message());
+            return;
+        }
+        for(; it != end; it.increment(ec))
+        {
+            if(ec)
+            {
+                DEBUGLOG("requeueStagedUploads walk error", ec.message());
+                ec.clear();
+                break;
+            }
+            const fs::directory_entry& entry = *it;
+            std::error_code fec;
+            if(!entry.is_regular_file(fec) || fec)
+                continue;
+            const std::string name = entry.path().filename().string();
+            if(name.size() < 4 || name.compare(name.size() - 4, 4, ".mkv") != 0)
+                continue;
+
+            const fs::path full = entry.path().lexically_normal();
+            const std::string key = normalizeKey(full.lexically_relative(root).generic_string());
+            if(key.empty() || key.find("..") == 0)
+                continue;
+            if(std::find(listed.begin(), listed.end(), key) != listed.end())
+                continue;
+
+            const std::string fullStr = full.string();
+            if(ClearMemoryManager::getInstance()->isOpenForWrite(fullStr)
+                || ClearMemoryManager::getInstance()->isOpenForWrite(entry.path().string()))
+            {
+                continue;
+            }
+
+            const auto lwt = entry.last_write_time(fec);
+            if(!fec && (now - lwt) < std::chrono::seconds(ORPHAN_MIN_AGE_SECONDS))
+            {
+                ++skippedYoung;
+                continue;
+            }
+
+            if(nx_spl::aux::isClosedSegmentName(name))
+            {
+                const std::string uri = "/" + key;
+                if(addFileToUploadInQueue(uri.c_str()))
+                {
+                    ++requeued;
+                    INFOLOG("Orphan staged segment requeued", uri);
+                }
+                else
+                {
+                    ERRORLOG("Orphan staged segment requeue failed", uri);
+                }
+            }
+            else
+            {
+                if(std::remove(fullStr.c_str()) == 0)
+                {
+                    ++removed;
+                    INFOLOG("Orphan incomplete segment removed", fullStr);
+                }
+                else
+                {
+                    ERRORLOG("Failed to remove orphan incomplete segment", fullStr);
+                    ClearMemoryManager::getInstance()->addFileToRemoveList(fullStr);
+                }
+            }
+        }
+        if(removed > 0)
+            nx_spl::aux::StagingUsage::instance().invalidate();
+        INFOLOG("requeueStagedUploads orphan scan", "requeued=", requeued, "removed=", removed,
+                "skippedYoung=", skippedYoung);
         noteUploadProgress();
     }
     catch(const std::exception& e)
@@ -999,11 +1238,11 @@ void s3Client::requeueStagedUploads()
     }
 }
 
-void s3Client::fileUploadThread()
+void s3Client::fileUploadThread(unsigned generation)
 {
     DEBUGLOG("s3Client::fileUploadThread");
     // m_uploadThreadAlive is set true by the starter before this thread runs.
-    INFOLOG("s3Client::fileUploadThread started");
+    INFOLOG("s3Client::fileUploadThread started", "generation", generation);
     try
     {
         while (1) 
@@ -1015,9 +1254,16 @@ void s3Client::fileUploadThread()
                     if(m_running == false)
                         break;
                 }
+                if(m_dispatcherGeneration.load() != generation)
+                {
+                    INFOLOG("s3Client::fileUploadThread superseded", generation, m_dispatcherGeneration.load());
+                    break;
+                }
 
                 clearStaleWorkfilesIfStalled();
 
+                // The liveness watchdog runs in keepAliveActivator (Timer thread) so it still
+                // fires if this thread hangs; here we only keep the informational marker.
                 bool warnWatchdog = false;
                 {
                     std::lock_guard<std::mutex> lock(m_mutex);
@@ -1073,18 +1319,33 @@ void s3Client::fileUploadThread()
 
                                     if(uploadImpl.get() != nullptr)
                                     {
+                                        const bool isNxdb = nx_spl::aux::isGenerationalNxdb(filename)
+                                            || (file.name.find(".nxdb") != std::string::npos);
+                                        // Generational catalogs are PUT from the flush-time snapshot so a
+                                        // concurrently growing live file cannot produce a torn object.
+                                        std::string sourcePath = file.fullPath;
+                                        std::string snapshotPath;
+                                        bool requeueNxdb = false;
+                                        if(isNxdb)
+                                        {
+                                            const std::string candidate = file.fullPath + NXDB_UPLOAD_SNAPSHOT_SUFFIX;
+                                            std::error_code ec;
+                                            if(fs::exists(candidate, ec) && !ec)
+                                            {
+                                                snapshotPath = candidate;
+                                                sourcePath = candidate;
+                                            }
+                                        }
                                         std::shared_ptr<Aws::IOStream> inputData = Aws::MakeShared<Aws::FStream>("SampleAllocationTag",
-                                                                                                                file.fullPath.c_str(),
+                                                                                                                sourcePath.c_str(),
                                                                                                                 std::ios_base::in | std::ios_base::binary);
                                         if ((inputData.get() != nullptr) && !inputData->good()) 
                                         {
-                                            ERRORLOG("Unable to read local file:",file.fullPath);
+                                            ERRORLOG("Unable to read local file:",sourcePath);
                                         }
                                         else
                                         {
-                                            uint64_t size = nx_spl::aux::getFileSize(file.fullPath.c_str());
-                                            const bool isNxdb = nx_spl::aux::isGenerationalNxdb(filename)
-                                                || (file.name.find(".nxdb") != std::string::npos);
+                                            uint64_t size = nx_spl::aux::getFileSize(sourcePath.c_str());
                                             if(isNxdb && size < MIN_NXDB_BYTES)
                                             {
                                                 INFOLOG("nxdb create deferred upload, size=", size, filename);
@@ -1123,6 +1384,23 @@ void s3Client::fileUploadThread()
                                                     {
                                                         // Keep local catalog durable; only remove prior cloud generation.
                                                         nx_spl::nxdb::onCatalogUploaded(self, filename);
+                                                        if(!snapshotPath.empty())
+                                                        {
+                                                            std::error_code ec;
+                                                            fs::remove(snapshotPath, ec);
+                                                            if(ec)
+                                                                DEBUGLOG("nxdb snapshot remove failed", snapshotPath, ec.message());
+                                                            // flush() could not replace the snapshot while we were
+                                                            // reading it and left a newer image as .tmp — promote it
+                                                            // and schedule another upload so the cloud copy catches up.
+                                                            const std::string newer = snapshotPath + ".tmp";
+                                                            if(fs::exists(newer, ec) && !ec)
+                                                            {
+                                                                fs::rename(newer, snapshotPath, ec);
+                                                                if(!ec)
+                                                                    requeueNxdb = true;
+                                                            }
+                                                        }
                                                     }
                                                     else
                                                     {
@@ -1134,6 +1412,11 @@ void s3Client::fileUploadThread()
                                                         }
                                                     }
                                                     self->removeFileFromUploadList(filename);
+                                                    if(requeueNxdb)
+                                                    {
+                                                        INFOLOG("nxdb newer snapshot requeued", filename);
+                                                        self->addFileToUploadInQueue(filename.c_str());
+                                                    }
                                                 }
                                             }
                                         }
@@ -1200,8 +1483,11 @@ void s3Client::fileUploadThread()
     {
         ERRORLOG("Exception Error: Unknown");
     }
-    m_uploadThreadAlive = false;
-    INFOLOG("s3Client::fileUploadThread exited");
+    // Only the current generation owns the alive flag; a superseded thread must not clear it.
+    if(m_dispatcherGeneration.load() == generation)
+        m_uploadThreadAlive = false;
+    ++m_dispatcherExits;
+    INFOLOG("s3Client::fileUploadThread exited", "generation", generation);
 }
 
 void s3Client::keepAliveActivator()
@@ -1210,6 +1496,19 @@ void s3Client::keepAliveActivator()
     try
     {
         ensureUploadDispatcherRunning();
+        uploadWatchdog();
+
+        {
+            bool scan = false;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                scan = m_running && m_storageAvailable
+                    && (std::chrono::steady_clock::now() - m_lastOrphanScan
+                        >= std::chrono::seconds(ORPHAN_SCAN_INTERVAL_SECONDS));
+            }
+            if(scan)
+                requeueStagedUploads();
+        }
 
         bool storageOk = false;
         s3PtrType implCopy;
@@ -1450,9 +1749,21 @@ std::vector<std::string> s3Client::getNextFileToUpload()
             return std::vector<std::string>{};
         }
         if(m_totalSpaceUpdating 
-            || m_workfiles.size() >= ServerManager::getInstance()->getMaxThread())
+            || m_workfiles.size() >= static_cast<size_t>(ServerManager::getInstance()->getMaxThread()))
         {
             DEBUGLOG("Uploading is bussy:", m_workfiles.size(), m_totalSpaceUpdating);
+            // Surface a saturated in-flight set at INFO (rate-limited) — at DEBUG-only this state
+            // was invisible in logs8 and looked like a dead dispatcher.
+            const auto now = std::chrono::steady_clock::now();
+            if(m_lastBusyLog.time_since_epoch().count() == 0
+                || now - m_lastBusyLog >= std::chrono::seconds(UPLOAD_STALL_WATCHDOG_SECONDS))
+            {
+                INFOLOG("Uploading is bussy:", "workfiles=", m_workfiles.size(),
+                        "queued=", m_threadPool.getWorkingTaskCount(),
+                        "busy=", m_threadPool.busyWorkerCount(),
+                        "spaceUpdating=", m_totalSpaceUpdating);
+                m_lastBusyLog = now;
+            }
             return std::vector<std::string>{};
         }
         std::vector<std::string> fileName;

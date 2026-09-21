@@ -76,6 +76,12 @@ void ClearMemoryManager::deleteFileFromWriteList(std::string strFile)
     }
 }
 
+bool ClearMemoryManager::isOpenForWrite(const std::string& strFile)
+{
+    std::lock_guard<std::mutex> lock(m_mutex);
+    return std::find(m_writeFileList.begin(), m_writeFileList.end(), strFile) != m_writeFileList.end();
+}
+
 bool ClearMemoryManager::isProtectedFile(const std::string& strFile) const
 {
     auto wit = std::find(m_writeFileList.begin(), m_writeFileList.end(), strFile);

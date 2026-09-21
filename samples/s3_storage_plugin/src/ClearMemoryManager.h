@@ -13,6 +13,8 @@ class ClearMemoryManager
     void deleteFileFromRemoveList(std::string strFile);
     void addFileToWriteList(std::string strFile);
     void deleteFileFromWriteList(std::string strFile);
+    /** True while an S3IODevice has this local path open for writing. */
+    bool isOpenForWrite(const std::string& strFile);
 
     private:
     ClearMemoryManager();

@@ -53,11 +53,27 @@ s3Client::fileUploadThread        → "added file in queue"
 
 **Code:** sync `S3IODevice::flush` → `s3Client::uploadFile` for `.nxdb` vs async `fileUploadThread` for `.mkv`.
 
-**Meaning:** Midnight (or date-change) `.nxdb` flush races `.mkv` hand-off; upload dispatcher is lost and does not respawn until process restart. Buffer-full and write refusal are **downstream**. Footage for those hours never reaches Wasabi; restart often destroys the local backlog (many segments discarded vs normal “1 open segment”).
+**Meaning:** Midnight (or date-change) `.nxdb` flush races `.mkv` hand-off; the upload dispatcher is **dead or the ThreadPool is starved** and nothing recovers until process restart. Note `added file in queue` is emitted by the **pool worker when it executes the task**, not by `fileUploadThread` when it enqueues — so “zero fileUploadThread lines” is equally consistent with a live dispatcher whose in-flight slots (`m_workfiles`) are saturated while tasks sit in the pool queue with no runner (pre-2.7 that state was DEBUG-only: `Uploading is bussy`). Buffer-full and write refusal are **downstream**. Footage for those hours never reaches Wasabi; pre-2.6 restart destroyed the local backlog (many segments discarded vs normal “1 open segment”).
 
 **Mitigation (ops):** Watchdog — no `Successfully uploaded file` …`.mkv` for >10 min → alert / restart Media Server. Raise `local_buffer` (20 GB+), dedicated staging disk, per-config staging root. Check main storage for outage windows (backup role).
 
-**Fix direction:** Queue `.nxdb` through the same path as `.mkv` or one mutex; self-heal dead `fileUploadThread`; re-queue temps on restart instead of deleting; harden `ClearMemoryManager`.
+**Fix state (`beta-global-2.7`; 2.6 was an unshipped first cut, logs9 field build is 2.5):** generational `.nxdb` is queued through the same path as `.mkv` (`uploadFile nxdb queued`), from a flush-time snapshot (`<file>.upload`); `s3Client::uploadFile` no longer holds `m_mutex` across `PutObject`; the liveness watchdog runs on the keep-alive Timer thread (not inside the dispatcher) and escalates; `ThreadPool` keeps ≥1 worker, drains before retiring, never joins a busy worker, spawns synchronously on enqueue; restart preserves and re-queues the backlog; `ClearMemoryManager` skips open/queued files.
+
+**2.7 recovery signatures (healthy self-heal, none should recur every night):**
+
+```
+Uploading is bussy: workfiles=… queued=… busy=…              # INFO, rate-limited; saturation now visible
+Upload watchdog: pending uploads without progress … tick=N    # Timer thread; N = consecutive minutes
+Upload watchdog: clearing in-flight slots …
+ThreadPool::ensureWorkers spawning worker …
+Upload watchdog: dispatcher stalled, restarting              # after UPLOAD_STALL_REBUILD_TICKS (3)
+s3Client::fileUploadThread superseded <old> <new>
+Upload dispatcher recovered <bucket> generation <N>
+Upload dispatcher respawned                                   # thread had actually exited
+Stale upload dispatcher did not exit; detaching it            # ERROR — thread truly hung; investigate
+```
+
+**Verification after deploying 2.7:** across a midnight boundary every `added file to uploaded` must be followed by `added file in queue` within 60 s; `uploadFile nxdb queued` at 00:00 with no `s3Client::uploadFile … .nxdb` sync PUT; zero `Local Folder is full!!` floods.
 
 ---
 
@@ -177,6 +193,15 @@ S3Storage::open … Local Folder is full!! No space available. stop writing
 
 **Code guidance:** Do not report buffer state via space APIs in a way that drives retention; prefer write back-pressure / `isAvailable` ([space-and-buffer.md](space-and-buffer.md)). Still: **observed steady cloud deletes in logs8 were capacity retention, not this path.**
 
+**2.7 behaviour (`aux::StagingUsage`):** usage is measured per bucket subtree (`<staging>/<bucket>`), cached for 5 s (no recursive walk per `write()`), never throws across the ABI, and has hysteresis — full above `local_buffer` (or staging volume < 200 MB free), resumes below 85 %. `isAvailable()` → 0, `getCapabilities()` drops `WriteFile`, `open()`/`write()` return `UnknownError` while full. Expect exactly one pair per episode:
+
+```
+Local buffer full, storage temporarily unavailable scope=<bucket> bytes=… limit=… diskFree=…
+Local buffer drained, storage available scope=<bucket> bytes=… resumeBelow=…
+```
+
+Orphan reclaim (connect + every 10 min): `Orphan staged segment requeued /<key>` (closed `<epoch>_<duration>.mkv` not in `UploadList.json` → re-queued), `Orphan incomplete segment removed <path>` (no `_<duration>` suffix = was open at crash), summary `requeueStagedUploads orphan scan requeued=… removed=… skippedYoung=…`. A `Local Folder is full!!` **flood** (more than one line / 30 s) on 2.7 indicates a regression.
+
 ---
 
 ## 9 — Invalid JSON on storage init
@@ -219,7 +244,9 @@ Failed to open local file!!
 
 ```bash
 rg -n "uploadFile nxdb|added file to uploaded|added file in queue|fileUploadThread" log_*.txt
-rg -n "local folder full|Local Folder is full" log_*.txt
+rg -n "Upload watchdog|Upload dispatcher|Uploading is bussy|ensureWorkers|superseded" log_*.txt   # 2.7 self-heal
+rg -n "local folder full|Local Folder is full|Local buffer full|Local buffer drained" log_*.txt
+rg -n "Orphan staged|Orphan incomplete|orphan scan|nxdb snapshot" log_*.txt                       # 2.7 staging
 rg -n "deleted file.*\.mkv|removeFile.*\.mkv" log_*.txt
 rg -n "nxdb create deferred|nxdb remove deferred|deleted file.*\.nxdb" log_*.txt
 rg -n "_db_ref\.guid" log_*.txt
