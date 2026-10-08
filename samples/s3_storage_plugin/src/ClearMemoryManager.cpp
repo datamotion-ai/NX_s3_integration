@@ -25,20 +25,23 @@ void ClearMemoryManager::deleteInstance()
 void ClearMemoryManager::addFileToRemoveList(std::string strFile)
 {
     DEBUGLOG("ClearMemoryManager::addFileToRemoveList");
-    std::lock_guard<std::mutex> lock(m_mutex);
-    auto it = std::find(m_writeFileList.begin(), m_writeFileList.end(), strFile);
-    if (it == m_writeFileList.end()) 
+    bool shouldClear = false;
     {
-        auto it = std::find(m_removeFileList.begin(), m_removeFileList.end(), strFile);
-        if (it == m_removeFileList.end()) 
+        std::lock_guard<std::mutex> lock(m_mutex);
+        auto it = std::find(m_writeFileList.begin(), m_writeFileList.end(), strFile);
+        if (it == m_writeFileList.end())
         {
-            if(m_removeFileList.size() >= 10)
+            auto it = std::find(m_removeFileList.begin(), m_removeFileList.end(), strFile);
+            if (it == m_removeFileList.end())
             {
-                clearMemory();
+                if (m_removeFileList.size() >= 10)
+                    shouldClear = true;
+                m_removeFileList.push_back(strFile);
             }
-            m_removeFileList.push_back(strFile); 
         }
     }
+    if (shouldClear)
+        clearMemory();
 }
 
 void ClearMemoryManager::deleteFileFromRemoveList(std::string strFile)
@@ -91,30 +94,41 @@ ClearMemoryManager::~ClearMemoryManager()
 void ClearMemoryManager::clearMemory()
 {
     INFOLOG("ClearMemoryManager::clearMemory");
-    // if(m_folderCleaned == false)
-    // {
-    //     freeTempStorage();
-    //     m_folderCleaned = true;
-    // }
-    while(!m_removeFileList.empty())
+    while (true)
     {
-        try {
-            std::string filename = m_removeFileList.back();
+        std::string filename;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (m_removeFileList.empty())
+                break;
+            filename = m_removeFileList.back();
+        }
+
+        try
+        {
             INFOLOG("Delete File:", filename);
-            if (fs::exists(filename.c_str()) && (remove(filename.c_str()) != 0))
+            bool removed = false;
+            {
+                std::lock_guard<std::mutex> cacheLock(nx_spl::aux::localCacheMutex());
+                if (!fs::exists(filename.c_str()) || remove(filename.c_str()) == 0)
+                    removed = true;
+            }
+            if (!removed)
             {
                 ERRORLOG("Failed to remove file:", filename.c_str());
-                std::this_thread::sleep_for(std::chrono::milliseconds(ONE_MINUTE));
+                break;
             }
-            else
-            {
+
+            std::lock_guard<std::mutex> lock(m_mutex);
+            if (!m_removeFileList.empty() && m_removeFileList.back() == filename)
                 m_removeFileList.pop_back();
-            }
         }
-        catch (const fs::filesystem_error& e) {
+        catch (const fs::filesystem_error& e)
+        {
             INFOLOG("Filesystem error: ", e.what());
         }
-        catch (const std::exception& e) {
+        catch (const std::exception& e)
+        {
             INFOLOG("Error: ", e.what());
         }
     }
@@ -127,40 +141,57 @@ void ClearMemoryManager::clearMemory()
         if(localFolder.empty() == false)
         {
             try {
-
-                for (const auto& entry : fs::recursive_directory_iterator(localFolder)) 
+                std::vector<std::string> jsonFiles;
                 {
-                    if (fs::is_regular_file(entry)) 
+                    std::lock_guard<std::mutex> cacheLock(nx_spl::aux::localCacheMutex());
+                    for (const auto& entry : fs::recursive_directory_iterator(localFolder))
                     {
-                        const std::string fileName(entry.path().string());
-                        if (fileName.find("UploadList.json") != std::string::npos)
+                        if (fs::is_regular_file(entry))
                         {
-                            INFOLOG("Json file:",fileName);
-                            loadJsonFile(fileName);
+                            const std::string fileName(entry.path().string());
+                            if (fileName.find("UploadList.json") != std::string::npos)
+                                jsonFiles.push_back(fileName);
                         }
                     }
                 }
-                for (const auto& entry : fs::recursive_directory_iterator(localFolder)) 
+
+                for (const auto& jsonFile : jsonFiles)
+                    loadJsonFile(jsonFile);
+
+                std::vector<std::string> filesToDelete;
                 {
-                    if (fs::is_regular_file(entry)) 
+                    std::lock_guard<std::mutex> cacheLock(nx_spl::aux::localCacheMutex());
+                    for (const auto& entry : fs::recursive_directory_iterator(localFolder))
                     {
-                        const std::string file(entry.path().filename().string());
-                        if ((file.find(".mkv") != std::string::npos))
+                        if (fs::is_regular_file(entry))
                         {
-                            INFOLOG("file:",file);
-                            auto it = std::find(m_uploadingFiles.begin(), m_uploadingFiles.end(), file);
-                            if (it == m_uploadingFiles.end()) 
+                            const std::string file(entry.path().filename().string());
+                            if (file.find(".mkv") != std::string::npos)
                             {
-                                INFOLOG("delete file:",file);
-                                if(remove(entry.path().string().c_str()) != 0)
-                                {
-                                    ERRORLOG("Failed to delete temp storage file", entry.path().string());
-                                    m_removeFileList.push_back(entry.path().string());
-                                }
+                                auto it = std::find(m_uploadingFiles.begin(), m_uploadingFiles.end(), file);
+                                if (it == m_uploadingFiles.end())
+                                    filesToDelete.push_back(entry.path().string());
                             }
                         }
                     }
                 }
+
+                for (const auto& filePath : filesToDelete)
+                {
+                    INFOLOG("delete file:", filePath);
+                    bool deleted = false;
+                    {
+                        std::lock_guard<std::mutex> cacheLock(nx_spl::aux::localCacheMutex());
+                        deleted = remove(filePath.c_str()) == 0;
+                    }
+                    if (!deleted)
+                    {
+                        ERRORLOG("Failed to delete temp storage file", filePath);
+                        std::lock_guard<std::mutex> lock(m_mutex);
+                        m_removeFileList.push_back(filePath);
+                    }
+                }
+
                 m_uploadingFiles.clear();
             } catch (const fs::filesystem_error& e) {
                 INFOLOG( "Filesystem error: ", e.what());

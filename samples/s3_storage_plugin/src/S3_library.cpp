@@ -343,15 +343,20 @@ namespace nx_spl
             std::lock_guard<std::mutex> lock(m_mutex);
             aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
 
-            if((file.fullPath.find(".mkv") == std::string::npos) 
-                && !fs::exists(file.fullPath.c_str())
-                && (m_impl.get() != nullptr))
+            bool needsDownload = false;
             {
-                if (!fs::exists(file.folderPath))
+                aux::LocalCacheLock cacheLock;
+                needsDownload = (file.fullPath.find(".mkv") == std::string::npos)
+                    && !fs::exists(file.fullPath.c_str())
+                    && (m_impl.get() != nullptr);
+                if (needsDownload && !fs::exists(file.folderPath))
                 {
                     INFOLOG("Creating folder:", file.folderPath);
-                    fs::create_directories(file.folderPath); // creates all missing parent directories
+                    fs::create_directories(file.folderPath);
                 }
+            }
+            if (needsDownload)
+            {
                 m_impl.get()->downloadFile(filePath.c_str(),file.fullPath);
             }
             
@@ -366,10 +371,13 @@ namespace nx_spl
                         *ecode = error::WriteNotSupported;
                         return ret;
                     }
-                    if (!fs::exists(file.folderPath))
                     {
-                        INFOLOG("Creating folder:", file.folderPath);
-                        fs::create_directories(file.folderPath); // creates all missing parent directories
+                        aux::LocalCacheLock cacheLock;
+                        if (!fs::exists(file.folderPath))
+                        {
+                            INFOLOG("Creating folder:", file.folderPath);
+                            fs::create_directories(file.folderPath);
+                        }
                     }
                 }
                 else if(flags & io::ReadOnly)
@@ -388,10 +396,13 @@ namespace nx_spl
                     // }
 
                     aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
-                    if(!fs::exists(file.fullPath))
                     {
-                        *ecode = error::UrlNotExists;
-                        return ret;
+                        aux::LocalCacheLock cacheLock;
+                        if(!fs::exists(file.fullPath))
+                        {
+                            *ecode = error::UrlNotExists;
+                            return ret;
+                        }
                     }
                     ClearMemoryManager::getInstance()->deleteFileFromRemoveList(file.fullPath);
                 }
@@ -496,16 +507,19 @@ namespace nx_spl
     int STORAGE_METHOD_CALL nx_spl::S3Storage::getCapabilities() const
     {
         DEBUGLOG("S3Storage::getCapabilities");
-        int ret = 0;
-        uintmax_t localFolderSize = nx_spl::aux::getFolderSize(nx_spl::aux::localUniqueFolder());
-        if(localFolderSize < ServerManager::getInstance()->getLocalBufferSize())
+        try
         {
-            ret |= cap::WriteFile;
+            return cap::ReadFile | cap::ListFile | cap::RemoveFile | cap::WriteFile;
         }
-        ret |= cap::ReadFile;
-        ret |= cap::ListFile;
-        ret |= cap::RemoveFile;
-        return ret;
+        catch (const std::exception& e)
+        {
+            ERRORLOG("Exception in getCapabilities:", e.what());
+        }
+        catch (...)
+        {
+            ERRORLOG("Unknown error in getCapabilities");
+        }
+        return cap::ReadFile | cap::ListFile | cap::RemoveFile;
     }
 
     void STORAGE_METHOD_CALL nx_spl::S3Storage::removeFile(const char *url, int *ecode)
@@ -537,11 +551,22 @@ namespace nx_spl
 
             aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
 
-            if(fs::exists(file.fullPath.c_str()))
+            bool localFileExists = false;
+            bool localRemoveFailed = false;
+            {
+                aux::LocalCacheLock cacheLock;
+                localFileExists = fs::exists(file.fullPath.c_str());
+                if (localFileExists)
+                {
+                    INFOLOG("Delete File:", file.fullPath);
+                    if (remove(file.fullPath.c_str()) != 0)
+                        localRemoveFailed = true;
+                }
+            }
+            if (localFileExists)
             {
                 ClearMemoryManager::getInstance()->deleteFileFromWriteList(file.fullPath);
-                INFOLOG("Delete File:", file.fullPath);
-                if(remove(file.fullPath.c_str()) != 0)
+                if (localRemoveFailed)
                 {
                     ERRORLOG("Failed to remove file:", file.fullPath.c_str());
                     ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
@@ -605,15 +630,28 @@ namespace nx_spl
                 aux::FileNameAndPath oldFile = aux::localUniqueFilePath(std::string(oldFileUrl));
                 aux::FileNameAndPath newFile = aux::localUniqueFilePath(std::string(newUrl));
 
-                if(fs::exists(oldFile.fullPath.c_str()))
+                bool sourceExists = false;
                 {
-                    fs::rename(oldFile.fullPath, newFile.fullPath);
+                    aux::LocalCacheLock cacheLock;
+                    sourceExists = fs::exists(oldFile.fullPath.c_str());
+                    if (sourceExists)
+                        fs::rename(oldFile.fullPath, newFile.fullPath);
+                }
+
+                if (sourceExists)
+                {
                     ClearMemoryManager::getInstance()->deleteFileFromWriteList(oldFile.fullPath);
-                    if (!m_impl.get()->addFileToUploadInQueue(newFileUrl.c_str())) 
+                    if (!m_impl.get()->addFileToUploadInQueue(newFileUrl.c_str()))
                     {
                         ERRORLOG("Failed to upload object, deleting the object",oldFileUrl,newFileUrl);
                         INFOLOG("Delete File:", newFile.fullPath);
-                        if(remove(newFile.fullPath.c_str()) != 0)
+                        bool removeFailed = false;
+                        {
+                            aux::LocalCacheLock cacheLock;
+                            if (remove(newFile.fullPath.c_str()) != 0)
+                                removeFailed = true;
+                        }
+                        if (removeFailed)
                         {
                             ERRORLOG("Failed to remove file:", newFile.fullPath.c_str());
                             ClearMemoryManager::getInstance()->addFileToRemoveList(newFile.fullPath);
@@ -768,9 +806,22 @@ namespace nx_spl
                 // }
 
                 aux::FileNameAndPath file = aux::localUniqueFilePath(filePath);
-                if(fs::exists(file.fullPath))
+                bool fileInCache = false;
                 {
-                    INFOLOG("File already into local storage",file.fullPath);
+                    aux::LocalCacheLock cacheLock;
+                    fileInCache = fs::exists(file.fullPath);
+                    if (fileInCache)
+                    {
+                        INFOLOG("File already into local storage",file.fullPath);
+                    }
+                    else if (!fs::exists(file.folderPath))
+                    {
+                        INFOLOG("Creating folder:", file.folderPath);
+                        fs::create_directories(file.folderPath);
+                    }
+                }
+                if (fileInCache)
+                {
                     if((m_impl.get() != nullptr) && (!m_impl.get()->isFileInUploadList(filePath))) {
                         ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
                     }
@@ -778,11 +829,6 @@ namespace nx_spl
                 }
                 else
                 {
-                    if (!fs::exists(file.folderPath))
-                    {
-                        INFOLOG("Creating folder:", file.folderPath);
-                        fs::create_directories(file.folderPath); // creates all missing parent directories
-                    }
                     if (!m_impl.get()->downloadFile(filePath.c_str(),file.fullPath)) 
                     {
                         ERRORLOG("file not found:",file.fullPath);
@@ -1333,9 +1379,12 @@ namespace nx_spl
                 if(m_localfile.fullPath.find(".nxdb") == std::string::npos)
                 {
                     INFOLOG("Delete File:", m_localfile.fullPath);
-                    if (remove(m_localfile.fullPath.c_str()) != 0)
                     {
-                        ERRORLOG("Failed to remove file:", m_localfile.fullPath);
+                        aux::LocalCacheLock cacheLock;
+                        if (remove(m_localfile.fullPath.c_str()) != 0)
+                        {
+                            ERRORLOG("Failed to remove file:", m_localfile.fullPath);
+                        }
                     }
                 }
             }
@@ -1344,7 +1393,12 @@ namespace nx_spl
                 && (m_localfile.fullPath.find(".nxdb") == std::string::npos) 
                 && !m_impl->isFileInUploadList(m_uri))
             {
-                if (fs::exists(m_localfile.fullPath.c_str())) 
+                bool localFileExists = false;
+                {
+                    aux::LocalCacheLock cacheLock;
+                    localFileExists = fs::exists(m_localfile.fullPath.c_str());
+                }
+                if (localFileExists)
                 {
                     ClearMemoryManager::getInstance()->addFileToRemoveList(m_localfile.fullPath);
                 }

@@ -6,7 +6,18 @@ std::string g_VMS;
 namespace nx_spl
 {
     namespace aux
-    { 
+    {
+        static std::mutex g_localCacheMutex;
+
+        std::mutex& localCacheMutex()
+        {
+            return g_localCacheMutex;
+        }
+
+        LocalCacheLock::LocalCacheLock()
+            : m_lock(localCacheMutex())
+        {
+        }
 
         std::string localUniqueFolder()
         {
@@ -171,15 +182,22 @@ namespace nx_spl
 
         uintmax_t getFolderSize(const fs::path &folder_path)
         {
+            std::lock_guard<std::mutex> lock(localCacheMutex());
             uintmax_t size = 0;
-            try{
-                for (const auto& entry : fs::recursive_directory_iterator(folder_path)) 
-                {                
-                    size += getFileSize(entry);                
+            if (!fs::exists(folder_path))
+                return size;
+
+            try
+            {
+                const auto options = fs::directory_options::skip_permission_denied;
+                for (const auto& entry : fs::recursive_directory_iterator(folder_path, options))
+                {
+                    size += getFileSize(entry);
                 }
-            }catch (const std::exception &ex) {
+            }
+            catch (const std::exception &ex)
+            {
                 ERRORLOG("DMError: Exception in getFolderSize ", ex.what());
-                throw;
             }
             DEBUGLOG("getFolderSize",size);
             return size;

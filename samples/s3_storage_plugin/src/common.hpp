@@ -333,6 +333,16 @@ namespace nx_spl
             } // Url::fromString()
         }; // struct Url
 
+        std::mutex& localCacheMutex();
+
+        class LocalCacheLock
+        {
+        public:
+            LocalCacheLock();
+        private:
+            std::lock_guard<std::mutex> m_lock;
+        };
+
         std::string localUniqueFolder();
 
         FileNameAndPath localUniqueFilePath(const std::string& fileName);

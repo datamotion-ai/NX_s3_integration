@@ -661,7 +661,10 @@ bool s3Client::addFileToUploadInQueue(const char *url)
                 inputFile.close();
                 ERRORLOG("Error parsing JSON from file:",reader.getFormattedErrorMessages());
                 INFOLOG("Delete File:", file.fullPath);
-                remove(file.fullPath.c_str());
+                {
+                    nx_spl::aux::LocalCacheLock cacheLock;
+                    remove(file.fullPath.c_str());
+                }
                 return false;
             }
             inputFile.close();
@@ -1020,7 +1023,13 @@ void s3Client::fileUploadThread()
                                                 self->m_space += size;
                                             }
                                             INFOLOG("Delete File:", file.fullPath);
-                                            if (remove(file.fullPath.c_str()) != 0) 
+                                            bool removeFailed = false;
+                                            {
+                                                nx_spl::aux::LocalCacheLock cacheLock;
+                                                if (remove(file.fullPath.c_str()) != 0)
+                                                    removeFailed = true;
+                                            }
+                                            if (removeFailed)
                                             {
                                                 ERRORLOG("Failed to remove file:",file.fullPath.c_str());
                                                 ClearMemoryManager::getInstance()->addFileToRemoveList(file.fullPath);
